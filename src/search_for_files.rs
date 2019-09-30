@@ -6,18 +6,18 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
 use ignore::{DirEntry, Error, WalkBuilder};
 
-use crate::LimitEntry;
+use crate::settings::{Kind, LimitEntry};
 
 #[derive(Debug)]
 pub(crate) enum FileData {
-    Limits(PathBuf, HashMap<String, LimitEntry>),
-    LogFile(PathBuf, Vec<String>),
+    Limits(PathBuf, HashMap<Kind, LimitEntry>),
+    LogFile(PathBuf, Vec<Kind>),
     ParseLimitsError(PathBuf, ConfigError),
 }
 
 pub(crate) fn construct_file_searcher(
     start_dir: &Path,
-    types: HashMap<String, GlobSet>,
+    types: HashMap<Kind, GlobSet>,
 ) -> Receiver<FileData> {
     let (tx, rx) = bounded(100);
     WalkBuilder::new(start_dir).build_parallel().run(|| {
@@ -42,7 +42,7 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
     None
 }
 
-fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<String, GlobSet>) {
+fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, GlobSet>) {
     if entry.path().ends_with("Limits.toml") {
         match parse_limits_file(&entry) {
             Ok(dict) => {
@@ -76,9 +76,9 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<String, 
     }
 }
 
-fn parse_limits_file(file: &DirEntry) -> Result<HashMap<String, LimitEntry>, ConfigError> {
+fn parse_limits_file(file: &DirEntry) -> Result<HashMap<Kind, LimitEntry>, ConfigError> {
     let mut limits = config::Config::default();
     limits.merge(config::File::from(file.path()))?;
-    let dict = limits.try_into::<HashMap<String, LimitEntry>>()?;
+    let dict = limits.try_into::<HashMap<Kind, LimitEntry>>()?;
     Ok(dict)
 }

@@ -11,102 +11,19 @@ use serde::{Deserialize, Deserializer};
 use serde::export::fmt::Debug;
 
 use crate::search_for_files::FileData;
+use crate::settings::{Category, Kind, LimitEntry, LimitsEntry, Settings};
 
 mod search_for_files;
 mod search_in_files;
-
-#[derive(Debug)]
-struct MyRegex(Regex);
-
-impl<'de> Deserialize<'de> for MyRegex {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let as_str = String::deserialize(deserializer)?;
-        let as_regex = RegexBuilder::new(&as_str)
-            .multi_line(true)
-            .build()
-            .map_err(serde::de::Error::custom)?;
-
-
-        for cap in as_regex.capture_names() {
-            // TODO: Verify that "file" exists inside here.
-        }
-        Ok(MyRegex(as_regex))
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum LimitEntry {
-    Number(u64),
-    PerCategory(HashMap<String, u64>),
-}
-
-#[derive(Debug, Deserialize)]
-struct Settings {
-    regex: MyRegex,
-    files: Vec<String>,
-    command: Option<String>,
-    default: Option<u64>,
-}
-
-#[derive(PartialEq, Eq, Hash)]
-struct LimitsEntry {
-    limits_file: Option<PathBuf>,
-    kind: String,
-    category: String,
-}
-
-impl LimitsEntry {
-    fn new<T: AsRef<Path>>(limits_file: Option<T>, kind: &str, category: Option<&str>) -> Self {
-        LimitsEntry {
-            limits_file: limits_file.map(|x| PathBuf::from(x.as_ref())),
-            kind: kind.to_owned(),
-            category: category.map_or("_".to_owned(), |s| s.to_owned()),
-        }
-    }
-
-    fn without_category(&self) -> Self {
-        LimitsEntry {
-            limits_file: self.limits_file.clone(),
-            kind: self.kind.clone(),
-            category: "_".to_owned(),
-        }
-    }
-}
-
-impl Debug for LimitsEntry {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        match self.limits_file {
-            Some(ref pb) => {
-                // Silly way to take the last 3 components of the path
-                let tail: PathBuf = pb
-                    .components()
-                    .rev()
-                    .take(3)
-                    .collect::<PathBuf>()
-                    .components()
-                    .rev()
-                    .collect();
-                write!(f, "..{}", tail.display());
-            }
-            None => {
-                write!(f, "_");
-            }
-        };
-        write!(f, ":[{}/{}]", self.kind, self.category)
-    }
-}
+mod settings;
 
 #[derive(PartialEq, Eq, Hash)]
 struct CountsTowardsLimit {
     culprit: PathBuf,
     line: Option<NonZeroUsize>,
     column: Option<NonZeroUsize>,
-    kind: String,
-    category: String,
+    kind: Kind,
+    category: Category,
 }
 
 impl Debug for CountsTowardsLimit {
@@ -116,7 +33,7 @@ impl Debug for CountsTowardsLimit {
         }
         write!(
             f,
-            "{}:{}:{}:[{}/{}]",
+            "{}:{}:{}:[{:?}/{:?}]",
             self.culprit.display(),
             fmt_nonzero(&self.line),
             fmt_nonzero(&self.column),
@@ -131,21 +48,21 @@ impl CountsTowardsLimit {
         culprit_file: T,
         line: Option<NonZeroUsize>,
         column: Option<NonZeroUsize>,
-        kind: &str,
-        category: Option<&str>,
+        kind: &Kind,
+        category: Option<&Category>,
     ) -> Self {
         CountsTowardsLimit {
             culprit: PathBuf::from(culprit_file.as_ref()),
             line: line,
             column: column,
-            kind: kind.to_owned(),
-            category: category.map_or("_".to_owned(), |s| s.to_owned()),
+            kind: kind.clone(),
+            category: category.cloned().unwrap_or_else(Category::none),
         }
     }
 }
 
 fn flatten_limits(
-    raw_form: &HashMap<PathBuf, HashMap<String, LimitEntry>>,
+    raw_form: &HashMap<PathBuf, HashMap<Kind, LimitEntry>>,
 ) -> HashMap<LimitsEntry, u64> {
     let mut result: HashMap<LimitsEntry, u64> = HashMap::new();
     for (path, data) in raw_form {
@@ -156,7 +73,7 @@ fn flatten_limits(
                 }
                 LimitEntry::PerCategory(cats) => {
                     for (cat, x) in cats {
-                        result.insert(LimitsEntry::new(Some(path), kind, Some(cat)), *x);
+                        result.insert(LimitsEntry::new(Some(path), kind, Some(cat.clone())), *x);
                     }
                 }
             }
@@ -197,8 +114,7 @@ fn parse_args() -> Arguments {
         )
         .get_matches();
 
-    let cwd = std::env::current_dir()
-        .expect("Could not compute current working directory!");
+    let cwd = std::env::current_dir().expect("Could not compute current working directory!");
     let start_dir = matches
         .value_of_os("start_dir")
         .map(PathBuf::from)
@@ -228,16 +144,16 @@ fn main() {
             &config_file.display()
         ));
 
-    let settings_dict = settings
-        .try_into::<HashMap<String, Settings>>()
+    let settings_obj = settings
+        .try_into::<Settings>()
         .expect("Could not convert the settings into a HashMap");
-    println!("{:#?}", settings_dict);
+    println!("{:#?}", settings_obj);
 
-    let globset = construct_types_info(&settings_dict);
+    let globset = construct_types_info(&settings_obj);
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
 
     let mut log_files = Vec::with_capacity(256);
-    let mut limits: HashMap<PathBuf, HashMap<String, LimitEntry>> = HashMap::new();
+    let mut limits: HashMap<PathBuf, HashMap<Kind, LimitEntry>> = HashMap::new();
 
     for p in rx {
         match p {
@@ -259,7 +175,7 @@ fn main() {
     println!("Collected limits: {:#?}", limits);
     println!("Collected log files: {:#?}", log_files);
 
-    let rx = search_in_files::search_files(&settings_dict, log_files, limits);
+    let rx = search_in_files::search_files(&settings_obj, log_files, limits);
 
     let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
     for (limits_entry, warning) in rx {
@@ -279,7 +195,7 @@ fn main() {
             Some(x) => {
                 if num_warnings > *x {
                     eprintln!(
-                        "Number of errors exceeded! (for category for {}/{}={})",
+                        "Number of errors exceeded! (for category for {:?}/{:?}={})",
                         limits_entry.kind, limits_entry.category, *x
                     );
                 } else {
@@ -293,7 +209,7 @@ fn main() {
                 Some(x) => {
                     if num_warnings > *x {
                         eprintln!(
-                            "Number of errors exceeded! (from blanket for {}={})",
+                            "Number of errors exceeded! (from blanket for {:?}={})",
                             limits_entry.kind, *x
                         );
                     } else {
@@ -304,14 +220,14 @@ fn main() {
                     }
                 }
                 None => {
-                    let threshold = settings_dict
+                    let threshold = settings_obj
                         .get(&limits_entry.kind)
                         .unwrap()
                         .default
                         .unwrap_or(0);
                     if num_warnings > threshold {
                         eprintln!(
-                            "Number of errors exceeded! (from default for {}={})",
+                            "Number of errors exceeded! (from default for {:?}={})",
                             limits_entry.kind, threshold
                         );
                         eprintln!("{:?}", warnings);
@@ -328,9 +244,9 @@ fn main() {
     println!("Done.");
 }
 
-fn construct_types_info(settings_dict: &HashMap<String, Settings>) -> HashMap<String, GlobSet> {
+fn construct_types_info(settings_dict: &Settings) -> HashMap<Kind, GlobSet> {
     let mut result = HashMap::new();
-    for (warning_t, warning_info) in settings_dict {
+    for (warning_t, warning_info) in settings_dict.iter() {
         let mut glob_builder = GlobSetBuilder::new();
         for file_glob in &warning_info.files {
             glob_builder.add(Glob::new(file_glob).expect("Bad glob pattern"));
