@@ -1,0 +1,7 @@
+python = 4321
+
+[gcc]
+-Wbad-code = 2
+_ = 2
+
+

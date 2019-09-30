@@ -1,0 +1,7 @@
+[gcc]
+regex = "^(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+): warning: (?P<description>.+) \\[(?P<category>.+)\\]"
+files = ["**/foo.log", "**/bar.log"]
+
+[rust]
+regex = "^warning: (?P<description>.+)\n\\s+-->\\s(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+)$"
+files = ["**/foo.log"]

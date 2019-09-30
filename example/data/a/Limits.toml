@@ -1,0 +1,3 @@
+[gcc]
+Wpedantic = 100
+Foo = 123

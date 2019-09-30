@@ -1,0 +1,146 @@
+data\c\c_c\a.c:1:5: warning: function declaration isn’t a prototype [-Wstrict-prototypes]
+data\c\c_c\a.c:2:1: warning: this isn't good either [-Wbad-code]
+data\c\c_b\x.c:1:1: warning: This file shouldn't be empty [-Wempty]
+data\a\d.c:1:1: warning: This file is ugly [-Wugly]
+
+warning: unused variable: `foo`
+ --> data\c\a.rs:38:13
+
+warning: unused import: `std::borrow::Borrow`
+ --> data\c\a.rs:2:5
+  |
+2 | use std::borrow::Borrow;
+  |     ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Error`, `Formatter`
+ --> data\c\a.rs:4:16
+  |
+4 | use std::fmt::{Error, Formatter};
+  |                ^^^^^  ^^^^^^^^^
+
+warning: unused import: `std::fs::FileType`
+ --> data\c\a.rs:5:5
+  |
+5 | use std::fs::FileType;
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ConfigError`, `File`
+  --> data\c\b.rs:10:14
+   |
+10 | use config::{ConfigError, File};
+   |              ^^^^^^^^^^^  ^^^^
+
+warning: unused imports: `Receiver`, `bounded`
+  --> data\c\b.rs:12:25
+   |
+12 | use crossbeam_channel::{bounded, Receiver};
+   |                         ^^^^^^^  ^^^^^^^^
+
+warning: unused import: `Match`
+  --> data\c\b.rs:14:13
+   |
+14 | use regex::{Match, Regex, RegexBuilder};
+   |             ^^^^^
+
+warning: unused import: `Serialize`
+  --> data\c\b.rs:15:40
+   |
+15 | use serde::{Deserialize, Deserializer, Serialize};
+   |                                        ^^^^^^^^^
+
+warning: unused import: `Display`
+  --> data\c\a.rs:16:33
+   |
+16 | use serde::export::fmt::{Debug, Display};
+   |                                 ^^^^^^^
+
+warning: unused import: `crate::file_search::FileData::Limits`
+  --> data\c\a.rs:19:5
+   |
+19 | use crate::file_search::FileData::Limits;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ignore::types::Types`
+ --> src\file_search.rs:7:5
+  |
+7 | use ignore::types::Types;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `matches`
+   --> data\c\a.rs:138:9
+    |
+138 |     let matches = App::new("wcnt - Warning Counter")
+    |         ^^^^^^^ help: consider prefixing with an underscore: `_matches`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `data`
+   --> data\c\a.rs:275:19
+    |
+275 |         for (key, data) in my_limits.iter() {
+    |                   ^^^^ help: consider prefixing with an underscore: `_data`
+
+warning: unused variable: `cap`
+  --> data\c\a.rs:38:13
+   |
+38 |         for cap in as_regex.capture_names() {
+   |             ^^^ help: consider prefixing with an underscore: `_cap`
+
+warning: struct is never constructed: `FlatEntry`
+   --> data\c\a.rs:112:1
+    |
+112 | struct FlatEntry {
+    | ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: unused `std::result::Result` that must be used
+   --> data\c\a.rs:190:5
+    |
+190 | /     crossbeam::scope(|scope| {
+191 | |         for (log_file, kinds) in log_files {
+192 | |             // I hope this doesn't exhaust your memory!
+193 | |             if let Some(loaded_file) = read_file(&log_file) {
+...   |
+222 | |         }
+223 | |     });
+    | |_______^
+    |
+    = note: `#[warn(unused_must_use)]` on by default
+    = note: this `Result` may be an `Err` variant, which should be handled
+
+warning: unused `std::result::Result` that must be used
+   --> data\c\a.rs:215:29
+    |
+215 | ...                   my_tx.send((LimitsEntry::new(limits_entry, &kind, category), warning));
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+
+warning: unused `std::result::Result` that must be used
+  --> src\file_search.rs:52:17
+   |
+52 |                 tx.send(FileData::Limits(directory, dict));
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+
+warning: unused `std::result::Result` that must be used
+  --> src\file_search.rs:55:17
+   |
+55 |                 tx.send(FileData::ParseLimitsError(entry.into_path(), config_error));
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+
+warning: unused `std::result::Result` that must be used
+  --> src\file_search.rs:67:13
+   |
+67 |             tx.send(FileData::LogFile(abs_path, file_ts));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+
+
