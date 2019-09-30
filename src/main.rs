@@ -1,23 +1,16 @@
-use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Error, Formatter};
-use std::fs::FileType;
-use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use config::{ConfigError, File};
-use crossbeam;
-use crossbeam_channel::{bounded, Receiver};
+use clap::{App, Arg};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use regex::{Match, Regex, RegexBuilder};
-use serde::export::fmt::{Debug, Display};
-use serde::{Deserialize, Deserializer, Serialize};
+use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Deserializer};
+use serde::export::fmt::Debug;
 
 use crate::search_for_files::FileData;
-use crate::search_for_files::FileData::Limits;
-use clap::{App, Arg};
 
 mod search_for_files;
 mod search_in_files;
@@ -35,6 +28,7 @@ impl<'de> Deserialize<'de> for MyRegex {
             .multi_line(true)
             .build()
             .map_err(serde::de::Error::custom)?;
+
 
         for cap in as_regex.capture_names() {
             // TODO: Verify that "file" exists inside here.

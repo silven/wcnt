@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-use std::path::{PathBuf, Path};
-use std::sync::Arc;
 use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
 
 use crate::{CountsTowardsLimit, LimitEntry, LimitsEntry, Settings};
-
 
 pub(crate) fn search_files(
     settings_dict: &HashMap<String, Settings>,
@@ -80,7 +79,8 @@ fn find_limits_for(
     while let Some(dir) = maybe_parent {
         if dir.parent().is_none() {
             break;
-        } // This happens when parent of . turns into empty string
+        }
+        // This happens when parent of . turns into empty string
         for (key, data) in my_limits.iter() {
             //println!("Comparing {} to {}", dir.display(), key.display());
             if key.ends_with(dir) {

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::LimitEntry;
 use config::ConfigError;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
-use ignore::types::Types;
 use ignore::{DirEntry, Error, WalkBuilder};
+
+use crate::LimitEntry;
 
 #[derive(Debug)]
 pub(crate) enum FileData {
