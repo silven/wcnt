@@ -57,8 +57,8 @@ struct Processor {
 }
 
 impl Processor {
-    fn process_file(&self, file_contents: &String) {
-        for matching in self.regex.captures_iter(&file_contents.as_str()) {
+    fn process_file(&self, file_contents: &str) {
+        for matching in self.regex.captures_iter(&file_contents) {
             self.process_captures(matching);
         }
     }
@@ -93,28 +93,28 @@ fn read_file(filename: &Path) -> Option<Arc<String>> {
     Some(Arc::new(buff))
 }
 
-fn find_limits_for(
-    my_limits: &HashMap<PathBuf, HashMap<Kind, LimitEntry>>,
-    file: &Path,
-) -> Option<PathBuf> {
+fn find_limits_for<'a, 'b>(
+    my_limits: &'a HashMap<PathBuf, HashMap<Kind, LimitEntry>>,
+    file: &'b Path,
+) -> Option<&'a Path> {
     let mut maybe_parent = file.parent();
-    while let Some(dir) = maybe_parent {
-        if dir.parent().is_none() {
+    while let Some(parent_dir) = maybe_parent {
+        // This happens when parent of . turns into empty string
+        if parent_dir.parent().is_none() {
             break;
         }
-        // This happens when parent of . turns into empty string
-        for (key, data) in my_limits.iter() {
-            //println!("Comparing {} to {}", dir.display(), key.display());
-            if key.ends_with(dir) {
+
+        for found_limit_file in my_limits.keys() {
+            if found_limit_file.ends_with(parent_dir) {
                 println!(
                     "Culprit {} should count towards limits defined in {}",
                     file.display(),
-                    key.display()
+                    found_limit_file.display()
                 );
-                return Some(key.clone());
+                return Some(found_limit_file.as_path());
             }
         }
-        maybe_parent = dir.parent();
+        maybe_parent = parent_dir.parent();
     }
     None
 }

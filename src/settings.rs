@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::Formatter;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
@@ -18,10 +17,6 @@ impl<'de> Deserialize<'de> for MyRegex {
             .multi_line(true)
             .build()
             .map_err(serde::de::Error::custom)?;
-
-        for cap in as_regex.capture_names() {
-            // TODO: Verify that "file" exists inside here.
-        }
         Ok(MyRegex(as_regex))
     }
 }
@@ -70,9 +65,13 @@ impl<'de> Deserialize<'de> for Settings {
         let raw = <HashMap<String, SettingsField>>::deserialize(deserializer)?;
         let mut result = HashMap::new();
         for (key, val) in raw.into_iter() {
+            let captures: HashSet<&str> = val.regex.capture_names().flatten().collect();
+            if !captures.contains("file") {
+                let msg = format!("Regex for kind '{}' does not capture the required field 'file'.", key);
+                return Err(serde::de::Error::custom(msg));
+            }
             result.insert(Kind(key), val);
         }
-
         Ok(Settings { inner: result })
     }
 }

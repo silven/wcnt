@@ -6,13 +6,11 @@ use std::sync::Arc;
 
 use clap::{App, Arg};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use regex::{Regex, RegexBuilder};
-use serde::{Deserialize, Deserializer};
 use serde::export::fmt::Debug;
 
+use crate::limits::{Category, LimitEntry, LimitsEntry};
 use crate::search_for_files::FileData;
 use crate::settings::{Kind, Settings};
-use crate::limits::{Category, LimitEntry, LimitsEntry};
 
 mod search_for_files;
 mod search_in_files;
@@ -30,15 +28,15 @@ struct CountsTowardsLimit {
 
 impl Debug for CountsTowardsLimit {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        fn fmt_nonzero(val: &Option<NonZeroUsize>) -> String {
-            val.map(|x| x.to_string()).unwrap_or("?".to_owned())
+        fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
+            val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
         }
         write!(
             f,
             "{}:{}:{}:[{:?}/{:?}]",
             self.culprit.display(),
-            fmt_nonzero(&self.line),
-            fmt_nonzero(&self.column),
+            fmt_nonzero(self.line),
+            fmt_nonzero(self.column),
             self.kind,
             self.category
         )
@@ -89,7 +87,7 @@ struct Arguments {
     config_file: PathBuf,
 }
 
-fn parse_args() -> Arguments {
+fn parse_args() -> Result<Arguments, std::io::Error> {
     let matches = App::new("wcnt - Warning Counter")
         .version(clap::crate_version!())
         .author(clap::crate_authors!())
@@ -116,7 +114,7 @@ fn parse_args() -> Arguments {
         )
         .get_matches();
 
-    let cwd = std::env::current_dir().expect("Could not compute current working directory!");
+    let cwd = std::env::current_dir()?;
     let start_dir = matches
         .value_of_os("start_dir")
         .map(PathBuf::from)
@@ -125,30 +123,23 @@ fn parse_args() -> Arguments {
     let config_file = matches
         .value_of_os("config_file")
         .map(PathBuf::from)
-        .unwrap_or(start_dir.join("Wcnt.toml").to_path_buf());
+        .unwrap_or_else(|| start_dir.join("Wcnt.toml").to_path_buf());
 
-    Arguments {
+    Ok(Arguments {
         start_dir: start_dir,
         config_file: config_file,
-    }
+    })
 }
 
-fn main() {
-    let args = parse_args();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = parse_args()?;
 
     let mut settings = config::Config::default();
     let config_file = args.config_file;
 
-    settings
-        .merge(config::File::from(config_file.as_path()))
-        .expect(&format!(
-            "Could not read config file '{}'",
-            &config_file.display()
-        ));
+    settings.merge(config::File::from(config_file.as_path()))?;
 
-    let settings_obj = settings
-        .try_into::<Settings>()
-        .expect("Could not convert the settings into a HashMap");
+    let settings_obj = settings.try_into::<Settings>()?;
     println!("{:#?}", settings_obj);
 
     let globset = construct_types_info(&settings_obj);
@@ -244,6 +235,7 @@ fn main() {
         }
     }
     println!("Done.");
+    Ok(())
 }
 
 fn construct_types_info(settings_dict: &Settings) -> HashMap<Kind, GlobSet> {
