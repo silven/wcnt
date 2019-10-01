@@ -11,11 +11,13 @@ use serde::{Deserialize, Deserializer};
 use serde::export::fmt::Debug;
 
 use crate::search_for_files::FileData;
-use crate::settings::{Category, Kind, LimitEntry, LimitsEntry, Settings};
+use crate::settings::{Kind, Settings};
+use crate::limits::{Category, LimitEntry, LimitsEntry};
 
 mod search_for_files;
 mod search_in_files;
 mod settings;
+mod limits;
 
 #[derive(PartialEq, Eq, Hash)]
 struct CountsTowardsLimit {

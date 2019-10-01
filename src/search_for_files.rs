@@ -6,7 +6,8 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
 use ignore::{DirEntry, Error, WalkBuilder};
 
-use crate::settings::{Kind, LimitEntry};
+use crate::limits::LimitEntry;
+use crate::settings::Kind;
 
 #[derive(Debug)]
 pub(crate) enum FileData {

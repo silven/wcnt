@@ -7,7 +7,8 @@ use crossbeam_channel::{Receiver, Sender};
 use regex::{Captures, Regex};
 
 use crate::CountsTowardsLimit;
-use crate::settings::{Category, Kind, LimitEntry, LimitsEntry, Settings};
+use crate::limits::{Category, LimitEntry, LimitsEntry};
+use crate::settings::{Kind, Settings};
 
 pub(crate) fn search_files(
     settings: &Settings,
