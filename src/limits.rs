@@ -5,20 +5,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Deserializer};
 
 use crate::settings::Kind;
+use std::fs::DirEntry;
+use crate::utils::SearchableArena;
+use config::ConfigError;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct Category(String);
-
-impl<'de> Deserialize<'de> for Category {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        Ok(Category(raw))
-    }
-}
-
 
 impl Category {
     pub fn none() -> Self {
@@ -46,20 +38,7 @@ impl LimitsFile {
     }
 }
 
-
-impl<'de> Deserialize<'de> for LimitsFile {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        let raw = <HashMap<Kind, LimitEntry>>::deserialize(deserializer)?;
-        Ok(LimitsFile{ inner: raw })
-    }
-}
-
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 pub(crate) enum LimitEntry {
     Number(u64),
     PerCategory(HashMap<Category, u64>),
@@ -116,4 +95,35 @@ impl core::fmt::Debug for LimitsEntry {
         };
         write!(f, ":[{:?}/{:?}]", self.kind, self.category)
     }
+}
+
+
+pub(crate) fn parse_limits_file(arena: &SearchableArena<String>, file: &Path) -> Result<LimitsFile, ConfigError> {
+    let mut limits = config::Config::default();
+    limits.merge(config::File::from(file))?;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum RawLimitEntry {
+        Number(u64),
+        PerCategory(HashMap<String, u64>),
+    }
+
+    let as_dict = limits.try_into::<HashMap<String, RawLimitEntry>>()?;
+    let mut result = HashMap::new();
+
+    for (key, val) in as_dict.into_iter() {
+        let kind_id = arena.get(&key).unwrap_or_else(|| panic!("Have not seen this kind '{}' before!", key));
+        let converted = match val {
+            RawLimitEntry::Number(x) => LimitEntry::Number(x),
+            RawLimitEntry::PerCategory(dict) => {
+                LimitEntry::PerCategory(dict.iter().map(|(cat, x)| (Category::from_str(cat), *x)).collect())
+            },
+        };
+        result.insert(Kind::new(kind_id), converted);
+    }
+
+    Ok(LimitsFile {
+        inner: result,
+    })
 }

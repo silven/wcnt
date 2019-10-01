@@ -16,6 +16,7 @@ mod search_for_files;
 mod search_in_files;
 mod settings;
 mod limits;
+mod utils;
 
 #[derive(PartialEq, Eq, Hash)]
 struct CountsTowardsLimit {
@@ -153,11 +154,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             FileData::LogFile(log_file, kinds) => {
                 log_files.push((log_file, kinds));
             }
-            FileData::Limits(path, limit_data) => {
-                limits.insert(path, limit_data);
-            }
-            FileData::ParseLimitsError(what, why) => {
-                eprintln!("Error parsing file '{}': {}", what.display(), why);
+            FileData::LimitsFile(path) => {
+                let limit = limits::parse_limits_file(&settings_obj.string_arena, &path).expect("OMFG");
+                limits.insert(path, limit);
             }
         }
     }

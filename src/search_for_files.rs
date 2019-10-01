@@ -11,9 +11,8 @@ use crate::settings::Kind;
 
 #[derive(Debug)]
 pub(crate) enum FileData {
-    Limits(PathBuf, LimitsFile),
+    LimitsFile(PathBuf),
     LogFile(PathBuf, Vec<Kind>),
-    ParseLimitsError(PathBuf, ConfigError),
 }
 
 pub(crate) fn construct_file_searcher(
@@ -45,21 +44,7 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
 
 fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, GlobSet>) {
     if entry.path().ends_with("Limits.toml") {
-        match parse_limits_file(&entry) {
-            Ok(limits_file) => {
-                let directory = entry
-                    .path()
-                    .canonicalize()
-                    .expect("Could not construct absolute path!")
-                    .parent()
-                    .expect("File has no parent!")
-                    .to_path_buf();
-                tx.send(FileData::Limits(directory, limits_file));
-            }
-            Err(err) => {
-                tx.send(FileData::ParseLimitsError(entry.into_path(), err));
-            }
-        }
+        tx.send(FileData::LimitsFile(entry.path().canonicalize().expect("Could not make abs")));
     } else {
         let mut file_ts = vec![];
         for (file_t, globs) in types {
@@ -75,11 +60,4 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
             tx.send(FileData::LogFile(abs_path, file_ts));
         }
     }
-}
-
-fn parse_limits_file(file: &DirEntry) -> Result<LimitsFile, ConfigError> {
-    let mut limits = config::Config::default();
-    limits.merge(config::File::from(file.path()))?;
-    let dict = limits.try_into::<LimitsFile>()?;
-    Ok(dict)
 }

@@ -99,19 +99,22 @@ fn find_limits_for<'a, 'b>(
 ) -> Option<&'a Path> {
     let mut maybe_parent = file.parent();
     while let Some(parent_dir) = maybe_parent {
-        // This happens when parent of . turns into empty string
+        // This happens when parent of . turns into empty string.
+        // I want `while let Some(d) && d.parent.is_some() = file.parent()`
         if parent_dir.parent().is_none() {
             break;
         }
 
         for found_limit_file in my_limits.keys() {
-            if found_limit_file.ends_with(parent_dir) {
+            let limit_file_folder = found_limit_file.parent().unwrap();
+            //println!("Checking {} against {}", limit_file_folder.display(), parent_dir.display());
+            if limit_file_folder.ends_with(parent_dir) {
                 println!(
                     "Culprit {} should count towards limits defined in {}",
                     file.display(),
-                    found_limit_file.display()
+                    limit_file_folder.display()
                 );
-                return Some(found_limit_file.as_path());
+                return Some(limit_file_folder);
             }
         }
         maybe_parent = parent_dir.parent();

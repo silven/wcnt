@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
+use crate::utils::SearchableArena;
+use id_arena::{Id};
 
 #[derive(Debug)]
 struct MyRegex(Regex);
@@ -22,20 +24,17 @@ impl<'de> Deserialize<'de> for MyRegex {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub(crate) struct Kind(String);
+pub(crate) struct Kind(Id<String>);
 
-impl<'de> Deserialize<'de> for Kind {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        Ok(Kind(raw))
+impl Kind {
+    pub fn new(id: Id<String>) -> Self {
+        Kind(id)
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct Settings {
+    pub(crate) string_arena: SearchableArena<String>,
     inner: HashMap<Kind, SettingsField>,
 }
 
@@ -64,15 +63,19 @@ impl<'de> Deserialize<'de> for Settings {
     {
         let raw = <HashMap<String, SettingsField>>::deserialize(deserializer)?;
         let mut result = HashMap::new();
+        let mut string_arena = SearchableArena::new();
         for (key, val) in raw.into_iter() {
+
             let captures: HashSet<&str> = val.regex.capture_names().flatten().collect();
             if !captures.contains("file") {
                 let msg = format!("Regex for kind '{}' does not capture the required field 'file'.", key);
                 return Err(serde::de::Error::custom(msg));
             }
-            result.insert(Kind(key), val);
+
+            let kind_id = string_arena.insert(key);
+            result.insert(Kind(kind_id), val);
         }
-        Ok(Settings { inner: result })
+        Ok(Settings { string_arena: string_arena, inner: result })
     }
 }
 
