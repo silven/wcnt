@@ -6,12 +6,12 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
 use ignore::{DirEntry, Error, WalkBuilder};
 
-use crate::limits::LimitEntry;
+use crate::limits::{LimitsFile, LimitEntry};
 use crate::settings::Kind;
 
 #[derive(Debug)]
 pub(crate) enum FileData {
-    Limits(PathBuf, HashMap<Kind, LimitEntry>),
+    Limits(PathBuf, LimitsFile),
     LogFile(PathBuf, Vec<Kind>),
     ParseLimitsError(PathBuf, ConfigError),
 }
@@ -46,7 +46,7 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
 fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, GlobSet>) {
     if entry.path().ends_with("Limits.toml") {
         match parse_limits_file(&entry) {
-            Ok(dict) => {
+            Ok(limits_file) => {
                 let directory = entry
                     .path()
                     .canonicalize()
@@ -54,7 +54,7 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
                     .parent()
                     .expect("File has no parent!")
                     .to_path_buf();
-                tx.send(FileData::Limits(directory, dict));
+                tx.send(FileData::Limits(directory, limits_file));
             }
             Err(err) => {
                 tx.send(FileData::ParseLimitsError(entry.into_path(), err));
@@ -77,9 +77,9 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
     }
 }
 
-fn parse_limits_file(file: &DirEntry) -> Result<HashMap<Kind, LimitEntry>, ConfigError> {
+fn parse_limits_file(file: &DirEntry) -> Result<LimitsFile, ConfigError> {
     let mut limits = config::Config::default();
     limits.merge(config::File::from(file.path()))?;
-    let dict = limits.try_into::<HashMap<Kind, LimitEntry>>()?;
+    let dict = limits.try_into::<LimitsFile>()?;
     Ok(dict)
 }

@@ -7,13 +7,13 @@ use crossbeam_channel::{Receiver, Sender};
 use regex::{Captures, Regex};
 
 use crate::CountsTowardsLimit;
-use crate::limits::{Category, LimitEntry, LimitsEntry};
+use crate::limits::{Category, LimitEntry, LimitsEntry, LimitsFile};
 use crate::settings::{Kind, Settings};
 
 pub(crate) fn search_files(
     settings: &Settings,
     log_files: Vec<(PathBuf, Vec<Kind>)>,
-    limits: Arc<HashMap<PathBuf, HashMap<Kind, LimitEntry>>>,
+    limits: Arc<HashMap<PathBuf, LimitsFile>>,
 ) -> Receiver<(LimitsEntry, CountsTowardsLimit)> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
@@ -52,7 +52,7 @@ pub(crate) fn search_files(
 struct Processor {
     regex: Regex,
     kind: Kind,
-    limits: Arc<HashMap<PathBuf, HashMap<Kind, LimitEntry>>>,
+    limits: Arc<HashMap<PathBuf, LimitsFile>>,
     tx: Sender<(LimitsEntry, CountsTowardsLimit)>,
 }
 
@@ -94,7 +94,7 @@ fn read_file(filename: &Path) -> Option<Arc<String>> {
 }
 
 fn find_limits_for<'a, 'b>(
-    my_limits: &'a HashMap<PathBuf, HashMap<Kind, LimitEntry>>,
+    my_limits: &'a HashMap<PathBuf, LimitsFile>,
     file: &'b Path,
 ) -> Option<&'a Path> {
     let mut maybe_parent = file.parent();

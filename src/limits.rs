@@ -30,6 +30,34 @@ impl Category {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct LimitsFile {
+    inner: HashMap<Kind, LimitEntry>,
+}
+
+
+impl LimitsFile {
+    pub fn iter(&self) -> impl Iterator<Item = (&Kind, &LimitEntry)> {
+        self.inner.iter()
+    }
+
+    pub fn get(&self, key: &Kind) -> Option<&LimitEntry> {
+        self.inner.get(key)
+    }
+}
+
+
+impl<'de> Deserialize<'de> for LimitsFile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        let raw = <HashMap<Kind, LimitEntry>>::deserialize(deserializer)?;
+        Ok(LimitsFile{ inner: raw })
+    }
+}
+
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum LimitEntry {

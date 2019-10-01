@@ -8,7 +8,7 @@ use clap::{App, Arg};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::export::fmt::Debug;
 
-use crate::limits::{Category, LimitEntry, LimitsEntry};
+use crate::limits::{Category, LimitEntry, LimitsEntry, LimitsFile};
 use crate::search_for_files::FileData;
 use crate::settings::{Kind, Settings};
 
@@ -62,11 +62,11 @@ impl CountsTowardsLimit {
 }
 
 fn flatten_limits(
-    raw_form: &HashMap<PathBuf, HashMap<Kind, LimitEntry>>,
+    raw_form: &HashMap<PathBuf, LimitsFile>,
 ) -> HashMap<LimitsEntry, u64> {
     let mut result: HashMap<LimitsEntry, u64> = HashMap::new();
     for (path, data) in raw_form {
-        for (kind, entry) in data {
+        for (kind, entry) in data.iter() {
             match entry {
                 LimitEntry::Number(x) => {
                     result.insert(LimitsEntry::new(Some(path), kind, None), *x);
@@ -146,7 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
 
     let mut log_files = Vec::with_capacity(256);
-    let mut limits: HashMap<PathBuf, HashMap<Kind, LimitEntry>> = HashMap::new();
+    let mut limits: HashMap<PathBuf, LimitsFile> = HashMap::new();
 
     for p in rx {
         match p {
