@@ -1,13 +1,11 @@
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 use id_arena::{Arena, Id};
 
 #[derive(Debug)]
 pub(crate) struct SearchableArena {
     arena: Arena<String>,
-    mapping: HashMap<u64, Id<String>>,
+    mapping: HashMap<String, Id<String>>,
 }
 
 impl SearchableArena {
@@ -23,17 +21,14 @@ impl SearchableArena {
     }
 
     pub fn insert(&mut self, val: String) -> Id<String>{
-        let mut s = DefaultHasher::new();
-        val.hash(&mut s);
         let id = self.arena.alloc(val);
-        self.mapping.insert(s.finish(), id);
+        let reference = self.arena.get(id).unwrap();
+        self.mapping.insert(reference.clone(), id);
         id
     }
 
     pub fn get_id(&self, val: &str) -> Option<Id<String>> {
-        let mut s = DefaultHasher::new();
-        val.hash(&mut s);
-        self.mapping.get(&s.finish()).cloned()
+        self.mapping.get(val).cloned()
     }
 
     pub fn lookup(&self, id: Id<String>) -> Option<&String> {
@@ -49,5 +44,22 @@ impl SearchableArena {
         for (_key, val) in other.iter() {
             self.get_or_insert(val);
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn can_insert_and_get() {
+        let mut arena = SearchableArena::new();
+        let a_string = "a string";
+        let inserted_as = arena.insert(a_string.to_owned());
+        let found_as = arena.get_id(a_string).unwrap();
+        assert_eq!(inserted_as, found_as);
+
+        let inside_arena = arena.lookup(found_as).unwrap();
+        assert_eq!(a_string, inside_arena);
     }
 }

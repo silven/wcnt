@@ -24,3 +24,7 @@ regex = "1.0"
 clap = "2.0"
 # ID Arena for interning of strings
 id-arena = "*"
+
+# Dev dependencies for testing
+[dev-dependencies]
+toml = "0.5"

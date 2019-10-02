@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 
-use config::ConfigError;
+use config::{ConfigError, Config};
 use id_arena::Id;
 use serde::Deserialize;
 
@@ -38,6 +38,10 @@ impl LimitsFile {
         self.inner.iter()
     }
 
+    pub fn get(&self, kind: &Kind) -> Option<&Threshold> {
+        self.inner.get(kind)
+    }
+
     pub fn display(&self, arena: &SearchableArena) -> impl Display {
         use std::fmt::Write;
 
@@ -68,7 +72,7 @@ impl LimitsFile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Threshold {
     Number(u64),
     PerCategory(HashMap<Category, u64>),
@@ -131,7 +135,10 @@ impl core::fmt::Debug for LimitsEntry {
 pub(crate) fn parse_limits_file(arena: &mut SearchableArena, file: &Path) -> Result<LimitsFile, ConfigError> {
     let mut limits = config::Config::default();
     limits.merge(config::File::from(file))?;
+    parse_limits_file_from_config(arena, limits)
+}
 
+fn parse_limits_file_from_config(arena: &mut SearchableArena, cfg: Config) -> Result<LimitsFile, ConfigError> {
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum RawLimitEntry {
@@ -139,12 +146,12 @@ pub(crate) fn parse_limits_file(arena: &mut SearchableArena, file: &Path) -> Res
         PerCategory(HashMap<String, u64>),
     }
 
-    let as_dict = limits.try_into::<HashMap<String, RawLimitEntry>>()?;
+    let as_dict = cfg.try_into::<HashMap<String, RawLimitEntry>>()?;
     let mut result = HashMap::new();
 
     for (key, val) in as_dict.into_iter() {
         // TODO; Turn this is a prettier error
-        let kind_id = arena.get_id(&key).unwrap_or_else(|| panic!("Have not seen this kind '{}' before!", key));
+        let kind_id = arena.get_id(&key).unwrap_or_else(|| panic!("Have not seen this kind `{}` before!", key));
         let converted = match val {
             RawLimitEntry::Number(x) => Threshold::Number(x),
             RawLimitEntry::PerCategory(dict) => {
@@ -160,4 +167,77 @@ pub(crate) fn parse_limits_file(arena: &mut SearchableArena, file: &Path) -> Res
     Ok(LimitsFile {
         inner: result,
     })
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use toml;
+    use config::FileFormat;
+
+    #[test]
+    fn can_deserialize_empty() {
+        let limits_str = r#"
+        "#;
+
+        let mut limits = config::Config::default();
+        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
+
+        let mut arena = SearchableArena::new();
+        parse_limits_file_from_config(&mut arena, limits).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Have not seen this kind `gcc` before!")]
+    fn cannot_deserialize_with_unknown_kind() {
+        let limits_str = r#"
+        gcc = 1
+        "#;
+
+        let mut limits = config::Config::default();
+        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
+
+        let mut arena = SearchableArena::new();
+        parse_limits_file_from_config(&mut arena, limits).unwrap();
+    }
+
+    #[test]
+    fn can_deserialize_with_known_kind() {
+        let limits_str = r#"
+        gcc = 1
+        "#;
+
+        let mut limits = config::Config::default();
+        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind(arena.insert("gcc".to_owned()));
+        let limits = parse_limits_file_from_config(&mut arena, limits).unwrap();
+
+        assert_eq!(limits.get(&gcc_kind), Some(&Threshold::Number(1)));
+    }
+
+    #[test]
+    fn can_deserialize_with_categories() {
+        let limits_str = r#"
+        [gcc]
+        -wbad-code = 1
+        -wpedantic = 2
+        "#;
+
+        let mut limits = config::Config::default();
+        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind(arena.insert("gcc".to_owned()));
+        let limits = parse_limits_file_from_config(&mut arena, limits).expect("parse");
+
+        let cat_bad_code = Category::new(arena.get_id("-wbad-code").expect("bad code"));
+        let cat_pedantic = Category::new(arena.get_id("-wpedantic").expect("pedantic"));
+        let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 1), (cat_pedantic, 2)].into_iter().collect();
+        assert_eq!(
+            limits.get(&gcc_kind),
+            Some(&Threshold::PerCategory(expected_mapping)));
+    }
 }

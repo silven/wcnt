@@ -69,7 +69,6 @@ impl Settings {
 pub(crate) struct SettingsField {
     pub(crate) regex: Regex,
     pub(crate) files: Vec<String>,
-    command: Option<String>,
     pub(crate) default: Option<u64>,
 }
 
@@ -85,7 +84,7 @@ impl<'de> Deserialize<'de> for Settings {
 
             let captures: HashSet<&str> = val.regex.capture_names().flatten().collect();
             if !captures.contains("file") {
-                let msg = format!("Regex for kind '{}' does not capture the required field 'file'.", key);
+                let msg = format!("Regex for kind '{}' does not capture the required field `file`.", key);
                 return Err(serde::de::Error::custom(msg));
             }
 
@@ -105,7 +104,6 @@ impl<'de> Deserialize<'de> for SettingsField {
         struct RawSettings {
             regex: String,
             files: Vec<String>,
-            command: Option<String>,
             default: Option<u64>,
         }
 
@@ -115,20 +113,71 @@ impl<'de> Deserialize<'de> for SettingsField {
             .build()
             .map_err(serde::de::Error::custom)?;
 
-        let names: HashSet<&str> = as_regex.capture_names().filter_map(|n| n).collect();
-        if !names.contains("file") {
-            let msg = format!(
-                "Regex '{}' does not contain the required capture group 'file'.",
-                as_regex
-            );
-            return Err(serde::de::Error::custom(msg));
-        }
         Ok(SettingsField {
             regex: as_regex,
             files: raw.files,
-            command: raw.command,
             default: raw.default,
         })
     }
 }
 
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use toml;
+
+    #[test]
+    fn can_deserialize_empty() {
+        let settings_str = r#"
+        "#;
+        toml::from_str::<Settings>(settings_str).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "missing field `regex`")]
+    fn must_specify_regex() {
+        let settings_str = r#"
+        [gcc]
+        files = ["**/*.txt"]
+        "#;
+        toml::from_str::<Settings>(settings_str).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "missing field `files`")]
+    fn must_specify_files() {
+        let settings_str = r#"
+        [gcc]
+        regex = "warning: (?P<file>.+)"
+        "#;
+        toml::from_str::<Settings>(settings_str).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "does not capture the required field `file`")]
+    fn must_specify_file_capture_in_regex() {
+        let settings_str = r#"
+        [gcc]
+        regex = "warning: (?P<description>.+)"
+        files = ["**/*.txt"]
+        "#;
+        toml::from_str::<Settings>(settings_str).unwrap();
+    }
+
+    #[test]
+    fn can_deserialize_many() {
+        let settings_str = r#"
+        [gcc]
+        regex = "^(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+): warning: (?P<description>.+) \\[(?P<category>.+)\\]"
+        files = ["**/gcc.txt"]
+
+        [rust]
+        regex = "^warning: (?P<description>.+)\n\\s+-->\\s(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+)$"
+        files = ["**/rust.txt"]
+        "#;
+
+        let settings = toml::from_str::<Settings>(settings_str).unwrap();
+        assert_eq!(settings.iter().count(), 2);
+    }
+}
