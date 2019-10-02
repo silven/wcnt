@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use config::ConfigError;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
 use ignore::{DirEntry, Error, WalkBuilder};
 
-use crate::limits::{LimitsFile, LimitEntry};
 use crate::settings::Kind;
 
 #[derive(Debug)]
@@ -20,6 +19,7 @@ pub(crate) fn construct_file_searcher(
     types: HashMap<Kind, GlobSet>,
 ) -> Receiver<FileData> {
     let (tx, rx) = bounded(100);
+    let types = Arc::new(types);
     WalkBuilder::new(start_dir).build_parallel().run(|| {
         let tx = tx.clone();
         let my_types_copy = types.clone();

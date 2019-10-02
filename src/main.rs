@@ -1,14 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Error, Formatter};
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 
 use clap::{App, Arg};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::export::fmt::Debug;
 
-use crate::limits::{Category, LimitEntry, LimitsEntry, LimitsFile};
+use crate::limits::{Category, LimitsEntry, LimitsFile, Threshold};
 use crate::search_for_files::FileData;
 use crate::settings::{Kind, Settings};
 
@@ -45,19 +44,19 @@ impl Debug for CountsTowardsLimit {
 }
 
 impl CountsTowardsLimit {
-    fn new<T: AsRef<Path>>(
-        culprit_file: T,
+    fn new(
+        culprit_file: PathBuf,
         line: Option<NonZeroUsize>,
         column: Option<NonZeroUsize>,
-        kind: &Kind,
-        category: Option<&Category>,
+        kind: Kind,
+        category: Category,
     ) -> Self {
         CountsTowardsLimit {
-            culprit: PathBuf::from(culprit_file.as_ref()),
+            culprit: culprit_file,
             line: line,
             column: column,
-            kind: kind.clone(),
-            category: category.cloned().unwrap_or_else(Category::none),
+            kind: kind,
+            category: category,
         }
     }
 }
@@ -69,12 +68,12 @@ fn flatten_limits(
     for (path, data) in raw_form {
         for (kind, entry) in data.iter() {
             match entry {
-                LimitEntry::Number(x) => {
-                    result.insert(LimitsEntry::new(Some(path), kind, None), *x);
+                Threshold::Number(x) => {
+                    result.insert(LimitsEntry::new(Some(path), kind.clone(), Category::none()), *x);
                 }
-                LimitEntry::PerCategory(cats) => {
+                Threshold::PerCategory(cats) => {
                     for (cat, x) in cats {
-                        result.insert(LimitsEntry::new(Some(path), kind, Some(cat.clone())), *x);
+                        result.insert(LimitsEntry::new(Some(path), kind.clone(), cat.clone()), *x);
                     }
                 }
             }
@@ -140,8 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     settings.merge(config::File::from(config_file.as_path()))?;
 
-    let settings_obj = settings.try_into::<Settings>()?;
-    println!("{:#?}", settings_obj);
+    let mut settings_obj = settings.try_into::<Settings>()?;
+    println!("{}", settings_obj.display());
 
     let globset = construct_types_info(&settings_obj);
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
@@ -155,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 log_files.push((log_file, kinds));
             }
             FileData::LimitsFile(path) => {
-                let limit = limits::parse_limits_file(&settings_obj.string_arena, &path).expect("OMFG");
+                let limit = limits::parse_limits_file(&mut settings_obj.string_arena, &path).expect("OMFG");
                 limits.insert(path, limit);
             }
         }
@@ -163,18 +162,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let flat_limits = flatten_limits(&limits);
 
-    let limits = Arc::new(limits);
-    println!("Collected limits: {:#?}", limits);
-    println!("Collected log files: {:#?}", log_files);
+    for (path, limits_file) in &limits {
+        println!("{}: {}", path.display(), limits_file.display(&settings_obj.string_arena));
+    }
 
-    let rx = search_in_files::search_files(&settings_obj, log_files, limits);
+    let rx = search_in_files::search_files(&settings_obj, log_files, &limits);
 
     let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
-    for (limits_entry, warning) in rx {
-        results
-            .entry(limits_entry)
-            .or_insert_with(HashSet::new)
-            .insert(warning);
+    for search_result_result in rx {
+
+        let search_result = match search_result_result {
+            Ok(r) => r,
+            Err(log_file) => {
+                eprintln!("Could not open log file '{}'", log_file.display());
+                continue;
+            }
+        };
+
+        let incomming_arena = search_result.string_arena;
+        settings_obj.string_arena.add_all(&incomming_arena);
+        for (mut limits_entry, warnings) in search_result.warnings {
+            limits_entry.category.convert(&incomming_arena, &settings_obj.string_arena);
+            results
+                .entry(limits_entry)
+                .or_insert_with(HashSet::new)
+                .extend(warnings.into_iter().map(|mut w| {
+                    w.category.convert(&incomming_arena, &settings_obj.string_arena);
+                    w
+                }));
+        }
     }
 
     println!("{:?}", results);

@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::fmt::Display;
 
+use id_arena::Id;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
+
 use crate::utils::SearchableArena;
-use id_arena::{Id};
 
 #[derive(Debug)]
 struct MyRegex(Regex);
@@ -24,7 +25,7 @@ impl<'de> Deserialize<'de> for MyRegex {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub(crate) struct Kind(Id<String>);
+pub(crate) struct Kind(pub(crate) Id<String>);
 
 impl Kind {
     pub fn new(id: Id<String>) -> Self {
@@ -34,7 +35,7 @@ impl Kind {
 
 #[derive(Debug)]
 pub(crate) struct Settings {
-    pub(crate) string_arena: SearchableArena<String>,
+    pub(crate) string_arena: SearchableArena,
     inner: HashMap<Kind, SettingsField>,
 }
 
@@ -45,6 +46,22 @@ impl Settings {
 
     pub fn get(&self, key: &Kind) -> Option<&SettingsField> {
         self.inner.get(key)
+    }
+
+    pub fn display(&self) -> impl Display {
+        use std::fmt::Write;
+
+        let mut buff = String::new();
+        writeln!(buff, "Settings {{");
+        for (kind, field) in &self.inner {
+            writeln!(buff, "[{}]", self.string_arena.lookup(kind.0).unwrap());
+            writeln!(buff, "regex = {:?}", field.regex);
+            writeln!(buff, "files = [{}]", field.files.join(", "));
+            writeln!(buff, "default = {}", field.default.unwrap_or(0));
+
+        }
+        write!(buff, "}}");
+        buff
     }
 }
 
