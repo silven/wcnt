@@ -127,8 +127,9 @@ impl<'de> Deserialize<'de> for SettingsField {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use toml;
+
+    use super::*;
 
     #[test]
     fn can_deserialize_empty() {

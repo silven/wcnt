@@ -12,7 +12,7 @@ use crate::utils;
 use crate::utils::SearchableArena;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub(crate) struct Category(pub(crate) Option<Id<String>>);
+pub(crate) struct Category(Option<Id<String>>);
 
 impl Category {
     pub fn new(id: Id<String>) -> Self {
@@ -23,24 +23,25 @@ impl Category {
         Category(None)
     }
 
-    pub(crate) fn convert(&mut self, from: &SearchableArena, to: &SearchableArena) {
+    pub fn remap_id(&mut self, from: &SearchableArena, to: &SearchableArena) {
         if let Some(cat_id) = self.0 {
-            let cat_str = from.lookup(cat_id).expect("No such string?");
+            let cat_str = from.lookup(cat_id)
+                .expect("String not present in new arena. Did you forget to merge?");
             self.0 = to.get_id(cat_str);
         }
     }
 }
 
 pub(crate) struct LimitsFile {
-    inner: HashMap<Kind, Threshold>,
+    inner: HashMap<Kind, Limit>,
 }
 
 impl LimitsFile {
-    pub fn iter(&self) -> impl Iterator<Item = (&Kind, &Threshold)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Kind, &Limit)> {
         self.inner.iter()
     }
 
-    pub fn get(&self, kind: &Kind) -> Option<&Threshold> {
+    pub fn get_limit(&self, kind: &Kind) -> Option<&Limit> {
         self.inner.get(kind)
     }
 
@@ -49,13 +50,13 @@ impl LimitsFile {
 
         let mut buff = String::new();
         writeln!(buff, "LimitsFile {{");
-        for (kind, threshold) in &self.inner {
+        for (kind, limit) in &self.inner {
             let kind_str = arena.lookup(kind.0).unwrap();
-            match threshold {
-                Threshold::Number(x) => {
+            match limit {
+                Limit::Number(x) => {
                     writeln!(buff, "{} = {}", kind_str, x);
                 }
-                Threshold::PerCategory(dict) => {
+                Limit::PerCategory(dict) => {
                     writeln!(buff, "[{}]", kind_str);
                     for (cat, x) in dict {
                         match cat.0 {
@@ -77,7 +78,7 @@ impl LimitsFile {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum Threshold {
+pub(crate) enum Limit {
     Number(u64),
     PerCategory(HashMap<Category, u64>),
 }
@@ -92,7 +93,7 @@ pub(crate) struct LimitsEntry {
 impl LimitsEntry {
     pub fn new(limits_file: Option<&Path>, kind: Kind, category: Category) -> Self {
         LimitsEntry {
-            limits_file: limits_file.map(|x| PathBuf::from(x)),
+            limits_file: limits_file.map(PathBuf::from),
             kind: kind,
             category: category,
         }
@@ -158,8 +159,8 @@ fn parse_limits_file_from_str(
             .get_id(&key)
             .unwrap_or_else(|| panic!("Have not seen this kind `{}` before!", key));
         let converted = match val {
-            RawLimitEntry::Number(x) => Threshold::Number(x),
-            RawLimitEntry::PerCategory(dict) => Threshold::PerCategory(
+            RawLimitEntry::Number(x) => Limit::Number(x),
+            RawLimitEntry::PerCategory(dict) => Limit::PerCategory(
                 dict.into_iter()
                     .map(|(cat, x)| {
                         let cat_id = arena.get_id(&cat).unwrap_or_else(|| arena.insert(cat));
@@ -208,7 +209,7 @@ mod test {
         let gcc_kind = Kind(arena.insert("gcc".to_owned()));
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
 
-        assert_eq!(limits.get(&gcc_kind), Some(&Threshold::Number(1)));
+        assert_eq!(limits.get_limit(&gcc_kind), Some(&Limit::Number(1)));
     }
 
     #[test]
@@ -229,8 +230,8 @@ mod test {
             .into_iter()
             .collect();
         assert_eq!(
-            limits.get(&gcc_kind),
-            Some(&Threshold::PerCategory(expected_mapping))
+            limits.get_limit(&gcc_kind),
+            Some(&Limit::PerCategory(expected_mapping))
         );
     }
 }

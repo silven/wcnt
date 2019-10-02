@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use id_arena::{Arena, Id};
-use std::path::Path;
 
 #[derive(Debug)]
 pub(crate) struct SearchableArena {

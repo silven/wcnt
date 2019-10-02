@@ -6,10 +6,10 @@ use std::sync::Arc;
 use crossbeam_channel::Receiver;
 use log::{error, trace};
 
+use crate::{CountsTowardsLimit, utils};
 use crate::limits::{Category, LimitsEntry, LimitsFile};
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
-use crate::{utils, CountsTowardsLimit};
 
 pub(crate) struct LogSearchResult {
     pub(crate) string_arena: SearchableArena,
