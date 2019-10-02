@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Receiver;
 
-use crate::CountsTowardsLimit;
+use crate::{CountsTowardsLimit, utils};
 use crate::limits::{Category, LimitsEntry, LimitsFile};
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
+use std::sync::Arc;
 
 pub(crate) struct LogSearchResult {
     pub(crate) string_arena: SearchableArena,
@@ -26,75 +27,70 @@ pub(crate) fn search_files<'limits>(
             // I hope this doesn't exhaust your memory!
             let tx = tx.clone();
             scope.spawn(move |scope| {
-                if let Some(loaded_file) = read_file(&log_file) {
-                    // Most log files will only ever be parsed once,
-                    // but some build system might do the equivalent of "make all" > big_log.txt,
-                    // or it might be the console log from Jenkins
-                    for kind in kinds {
-                        let file_contents_handle = loaded_file.clone();
-                        // TODO; Can be pre-construct these before we read the files?
-                        // Since we need to clone the regex for every invocation, I think not.
-                        let regex = settings.get(&kind).unwrap().regex.clone();
-                        let tx = tx.clone();
+                match utils::read_file(&log_file) {
+                    Ok(loaded_file) => {
+                        let file_handle = Arc::new(loaded_file);
+                        // Most log files will only ever be parsed once,
+                        // but some build system might do the equivalent of "make all" > big_log.txt,
+                        // or it might be the console log from Jenkins
+                        for kind in kinds {
+                            let file_contents_handle = file_handle.clone();
+                            // TODO; Can be pre-construct these before we read the files?
+                            // Since we need to clone the regex for every invocation, I think not.
+                            let regex = settings.get(&kind).unwrap().regex.clone();
+                            let tx = tx.clone();
 
-                        scope.spawn(move |_| {
-                            let mut result = LogSearchResult {
-                                string_arena: SearchableArena::new(),
-                                warnings: HashMap::new(),
-                            };
-
-                            let mut limits_cache: HashMap<PathBuf, Option<&Path>> = HashMap::new();
-                            for matching in regex.captures_iter(&file_contents_handle) {
-                                // What file is the culprit?
-                                let culprit_file = matching.name("file").map(|m| PathBuf::from(m.as_str())).unwrap();
-                                // Try to identify the warning using line, column and category
-                                let line: Option<NonZeroUsize> = matching.name("line").map(|m| m.as_str().parse().unwrap());
-                                let column: Option<NonZeroUsize> =
-                                    matching.name("column").map(|m| m.as_str().parse().unwrap());
-                                let cat_str = matching
-                                    .name("category")
-                                    .map(|m| m.as_str());
-
-                                // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.rust sort
-                                let limits_file = if limits_cache.contains_key(&culprit_file) {
-                                    *limits_cache.get(&culprit_file).unwrap()
-                                } else {
-                                    *limits_cache.entry(culprit_file.clone())
-                                        .or_insert_with(|| find_limits_for(&limits, culprit_file.as_path()))
+                            scope.spawn(move |_| {
+                                let mut result = LogSearchResult {
+                                    string_arena: SearchableArena::new(),
+                                    warnings: HashMap::new(),
                                 };
 
-                                let category = match cat_str {
-                                    Some(cat_str) => Category::new(result.string_arena.get_or_insert(cat_str)),
-                                    None => Category::none(),
-                                };
-                                let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category.clone());
-                                let warning = CountsTowardsLimit::new(culprit_file, line, column, kind.clone(), category);
+                                let mut limits_cache: HashMap<PathBuf, Option<&Path>> = HashMap::new();
+                                for matching in regex.captures_iter(&file_contents_handle) {
+                                    // What file is the culprit?
+                                    let culprit_file = matching.name("file").map(|m| PathBuf::from(m.as_str())).unwrap();
+                                    // Try to identify the warning using line, column and category
+                                    let line: Option<NonZeroUsize> = matching.name("line").map(|m| m.as_str().parse().unwrap());
+                                    let column: Option<NonZeroUsize> =
+                                        matching.name("column").map(|m| m.as_str().parse().unwrap());
+                                    let cat_str = matching
+                                        .name("category")
+                                        .map(|m| m.as_str());
 
-                                result.warnings
-                                    .entry(limits_entry)
-                                    .or_insert_with(HashSet::new)
-                                    .insert(warning);
-                            }
-                            tx.send(Ok(result));
-                        });
+                                    // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.rust sort
+                                    let limits_file = if limits_cache.contains_key(&culprit_file) {
+                                        *limits_cache.get(&culprit_file).unwrap()
+                                    } else {
+                                        *limits_cache.entry(culprit_file.clone())
+                                            .or_insert_with(|| find_limits_for(&limits, culprit_file.as_path()))
+                                    };
+
+                                    let category = match cat_str {
+                                        Some(cat_str) => Category::new(result.string_arena.get_or_insert(cat_str)),
+                                        None => Category::none(),
+                                    };
+                                    let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category.clone());
+                                    let warning = CountsTowardsLimit::new(culprit_file, line, column, kind.clone(), category);
+
+                                    result.warnings
+                                        .entry(limits_entry)
+                                        .or_insert_with(HashSet::new)
+                                        .insert(warning);
+                                }
+                                tx.send(Ok(result));
+                            });
+                        }
                     }
-                } else {
-                    eprintln!("Could not read log file: {}", log_file.display());
-                    tx.send(Err(log_file));
+                    Err(e) => {
+                        eprintln!("Could not read log file: {}, {}", log_file.display(), e);
+                        tx.send(Err(log_file));
+                    }
                 }
             });
         }
     }).expect("Could not create crossbeam scope.");
     rx
-}
-
-fn read_file(filename: &Path) -> Option<String> {
-    use std::io::Read;
-
-    let mut buff = String::with_capacity(4096);
-    let mut f = std::fs::File::open(filename).unwrap();
-    f.read_to_string(&mut buff).unwrap();
-    Some(buff)
 }
 
 fn find_limits_for<'a, 'b>(

@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 
-use config::{ConfigError, Config};
 use id_arena::Id;
 use serde::Deserialize;
+use toml;
 
 use crate::settings::Kind;
+use crate::utils;
 use crate::utils::SearchableArena;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -132,13 +134,12 @@ impl core::fmt::Debug for LimitsEntry {
 }
 
 
-pub(crate) fn parse_limits_file(arena: &mut SearchableArena, file: &Path) -> Result<LimitsFile, ConfigError> {
-    let mut limits = config::Config::default();
-    limits.merge(config::File::from(file))?;
-    parse_limits_file_from_config(arena, limits)
+pub(crate) fn parse_limits_file(arena: &mut SearchableArena, file: &Path) -> Result<LimitsFile, Box<dyn Error>> {
+    let file_contents = utils::read_file(file)?;
+    parse_limits_file_from_str(arena, &file_contents)
 }
 
-fn parse_limits_file_from_config(arena: &mut SearchableArena, cfg: Config) -> Result<LimitsFile, ConfigError> {
+fn parse_limits_file_from_str(arena: &mut SearchableArena, cfg: &str) -> Result<LimitsFile, Box<dyn Error>> {
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum RawLimitEntry {
@@ -146,10 +147,10 @@ fn parse_limits_file_from_config(arena: &mut SearchableArena, cfg: Config) -> Re
         PerCategory(HashMap<String, u64>),
     }
 
-    let as_dict = cfg.try_into::<HashMap<String, RawLimitEntry>>()?;
+    let as_raw_dict: HashMap<String, RawLimitEntry> = toml::from_str(&cfg)?;
     let mut result = HashMap::new();
 
-    for (key, val) in as_dict.into_iter() {
+    for (key, val) in as_raw_dict.into_iter() {
         // TODO; Turn this is a prettier error
         let kind_id = arena.get_id(&key).unwrap_or_else(|| panic!("Have not seen this kind `{}` before!", key));
         let converted = match val {
@@ -173,19 +174,14 @@ fn parse_limits_file_from_config(arena: &mut SearchableArena, cfg: Config) -> Re
 #[cfg(test)]
 mod test {
     use super::*;
-    use toml;
-    use config::FileFormat;
 
     #[test]
     fn can_deserialize_empty() {
         let limits_str = r#"
         "#;
 
-        let mut limits = config::Config::default();
-        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
-
         let mut arena = SearchableArena::new();
-        parse_limits_file_from_config(&mut arena, limits).unwrap();
+        parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
     }
 
     #[test]
@@ -195,11 +191,8 @@ mod test {
         gcc = 1
         "#;
 
-        let mut limits = config::Config::default();
-        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
-
         let mut arena = SearchableArena::new();
-        parse_limits_file_from_config(&mut arena, limits).unwrap();
+        parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
     }
 
     #[test]
@@ -208,12 +201,9 @@ mod test {
         gcc = 1
         "#;
 
-        let mut limits = config::Config::default();
-        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
-
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_config(&mut arena, limits).unwrap();
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
 
         assert_eq!(limits.get(&gcc_kind), Some(&Threshold::Number(1)));
     }
@@ -226,12 +216,9 @@ mod test {
         -wpedantic = 2
         "#;
 
-        let mut limits = config::Config::default();
-        limits.merge(config::File::from_str(limits_str, FileFormat::Toml)).unwrap();
-
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_config(&mut arena, limits).expect("parse");
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-wpedantic").expect("pedantic"));

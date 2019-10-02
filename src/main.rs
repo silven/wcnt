@@ -3,6 +3,7 @@ use std::fmt::{Error, Formatter};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
+use toml;
 use clap::{App, Arg};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::export::fmt::Debug;
@@ -134,15 +135,14 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args()?;
 
-    let mut settings = config::Config::default();
-    let config_file = args.config_file;
+    let mut settings: Settings = {
+        let config_file = utils::read_file(args.config_file.as_path())?;
+        toml::from_str(&config_file)?
+    };
 
-    settings.merge(config::File::from(config_file.as_path()))?;
+    println!("{}", settings.display());
 
-    let mut settings_obj = settings.try_into::<Settings>()?;
-    println!("{}", settings_obj.display());
-
-    let globset = construct_types_info(&settings_obj);
+    let globset = construct_types_info(&settings);
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
 
     let mut log_files = Vec::with_capacity(256);
@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 log_files.push((log_file, kinds));
             }
             FileData::LimitsFile(path) => {
-                let limit = limits::parse_limits_file(&mut settings_obj.string_arena, &path).expect("OMFG");
+                let limit = limits::parse_limits_file(&mut settings.string_arena, &path).expect("OMFG");
                 limits.insert(path, limit);
             }
         }
@@ -163,10 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let flat_limits = flatten_limits(&limits);
 
     for (path, limits_file) in &limits {
-        println!("{}: {}", path.display(), limits_file.display(&settings_obj.string_arena));
+        println!("{}: {}", path.display(), limits_file.display(&settings.string_arena));
     }
 
-    let rx = search_in_files::search_files(&settings_obj, log_files, &limits);
+    let rx = search_in_files::search_files(&settings, log_files, &limits);
 
     let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
     for search_result_result in rx {
@@ -180,14 +180,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let incomming_arena = search_result.string_arena;
-        settings_obj.string_arena.add_all(&incomming_arena);
+        settings.string_arena.add_all(&incomming_arena);
         for (mut limits_entry, warnings) in search_result.warnings {
-            limits_entry.category.convert(&incomming_arena, &settings_obj.string_arena);
+            limits_entry.category.convert(&incomming_arena, &settings.string_arena);
             results
                 .entry(limits_entry)
                 .or_insert_with(HashSet::new)
                 .extend(warnings.into_iter().map(|mut w| {
-                    w.category.convert(&incomming_arena, &settings_obj.string_arena);
+                    w.category.convert(&incomming_arena, &settings.string_arena);
                     w
                 }));
         }
@@ -228,7 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 None => {
-                    let threshold = settings_obj
+                    let threshold = settings
                         .get(&limits_entry.kind)
                         .unwrap()
                         .default
