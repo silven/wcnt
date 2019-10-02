@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Error, Formatter};
+use std::error::Error;
+use std::fmt::Formatter;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use toml;
 use clap::{App, Arg};
+use env_logger;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use log::{debug, warn, trace};
 use serde::export::fmt::Debug;
+use toml;
 
 use crate::limits::{Category, LimitsEntry, LimitsFile, Threshold};
 use crate::search_for_files::FileData;
@@ -28,7 +31,7 @@ struct CountsTowardsLimit {
 }
 
 impl Debug for CountsTowardsLimit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
             val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
         }
@@ -83,6 +86,7 @@ fn flatten_limits(
     result
 }
 
+#[derive(Debug)]
 struct Arguments {
     start_dir: PathBuf,
     config_file: PathBuf,
@@ -132,17 +136,18 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
     })
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
     let args = parse_args()?;
+    debug!("Parsed arguments `{:?}`", args);
 
     let mut settings: Settings = {
         let config_file = utils::read_file(args.config_file.as_path())?;
         toml::from_str(&config_file)?
     };
+    debug!("Starting with these settings: {}", settings.display());
 
-    println!("{}", settings.display());
-
-    let globset = construct_types_info(&settings);
+    let globset = construct_types_info(&settings)?;
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
 
     let mut log_files = Vec::with_capacity(256);
@@ -160,10 +165,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let flat_limits = flatten_limits(&limits);
-
     for (path, limits_file) in &limits {
-        println!("{}: {}", path.display(), limits_file.display(&settings.string_arena));
+        debug!("Found Limits.toml file at `{}`", path.display());
+        trace!("{}", limits_file.display(&settings.string_arena));
     }
 
     let rx = search_in_files::search_files(&settings, log_files, &limits);
@@ -174,96 +178,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let search_result = match search_result_result {
             Ok(r) => r,
             Err(log_file) => {
-                eprintln!("Could not open log file '{}'", log_file.display());
+                warn!("Could not open log file `{}`", log_file.display());
                 continue;
             }
         };
 
-        let incomming_arena = search_result.string_arena;
-        settings.string_arena.add_all(&incomming_arena);
+        let incoming_arena = search_result.string_arena;
+        settings.string_arena.add_all(&incoming_arena);
         for (mut limits_entry, warnings) in search_result.warnings {
-            limits_entry.category.convert(&incomming_arena, &settings.string_arena);
+            limits_entry.category.convert(&incoming_arena, &settings.string_arena);
             results
                 .entry(limits_entry)
                 .or_insert_with(HashSet::new)
                 .extend(warnings.into_iter().map(|mut w| {
-                    w.category.convert(&incomming_arena, &settings.string_arena);
+                    w.category.convert(&incoming_arena, &settings.string_arena);
                     w
                 }));
         }
     }
 
-    println!("{:?}", results);
-    println!("{:?}", flat_limits);
-
     // Finally, check the results
-    for (limits_entry, warnings) in results {
-        let num_warnings = warnings.len() as u64;
-        match flat_limits.get(&limits_entry) {
-            Some(x) => {
-                if num_warnings > *x {
-                    eprintln!(
-                        "Number of errors exceeded! (for category for {:?}/{:?}={})",
-                        limits_entry.kind, limits_entry.category, *x
-                    );
-                } else {
-                    println!(
-                        "Number of warnings is under the threshold {} for: {:?}/{:?}",
-                        x, limits_entry, warnings
-                    );
-                }
-            }
-            None => match flat_limits.get(&limits_entry.without_category()) {
-                Some(x) => {
-                    if num_warnings > *x {
-                        eprintln!(
-                            "Number of errors exceeded! (from blanket for {:?}={})",
-                            limits_entry.kind, *x
-                        );
-                    } else {
-                        println!(
-                            "Number of warnings is under the threshold {} for: {:?}/{:?}",
-                            x, limits_entry, warnings
-                        );
-                    }
-                }
-                None => {
-                    let threshold = settings
-                        .get(&limits_entry.kind)
-                        .unwrap()
-                        .default
-                        .unwrap_or(0);
-                    if num_warnings > threshold {
-                        eprintln!(
-                            "Number of errors exceeded! (from default for {:?}={})",
-                            limits_entry.kind, threshold
-                        );
-                        eprintln!("{:?}", warnings);
-                    } else {
-                        println!(
-                            "Number of warnings is under the threshold {} for: {:?}/{:?}",
-                            threshold, limits_entry, warnings
-                        );
-                    }
-                }
-            },
-        }
+    let mut flat_limits = flatten_limits(&limits);
+    for (kind, field) in settings.iter() {
+        let entry_for_kind_default = LimitsEntry::new(None, kind.clone(), Category::none());
+        flat_limits.insert(entry_for_kind_default, field.default.unwrap_or(0));
     }
+
+    check_warnings_against_thresholds(&flat_limits, &results);
     println!("Done.");
     Ok(())
 }
 
-fn construct_types_info(settings_dict: &Settings) -> HashMap<Kind, GlobSet> {
+fn check_warnings_against_thresholds(flat_limits: &HashMap<LimitsEntry, u64>, results: &HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>) {
+    for (limits_entry, warnings) in results {
+        let num_warnings = warnings.len() as u64;
+        match flat_limits.get(&limits_entry) {
+            Some(x) => if num_warnings > *x {
+                    warn!(
+                        "Number of errors exceeded! (for category for {:?}/{:?}={})",
+                        limits_entry.kind, limits_entry.category, *x
+                    );
+                },
+            None => match flat_limits.get(&limits_entry.without_category()) {
+                Some(x) =>  if num_warnings > *x {
+                    warn!(
+                        "Number of errors exceeded! (from blanket for {:?}={})",
+                        limits_entry.kind, *x
+                    );
+                },
+                None => { panic!("Could not find an entry to compare `{:?}` against", limits_entry); }
+            },
+        }
+    }
+}
+
+fn construct_types_info(settings_dict: &Settings) -> Result<HashMap<Kind, GlobSet>, Box<dyn Error>> {
     let mut result = HashMap::new();
     for (warning_t, warning_info) in settings_dict.iter() {
         let mut glob_builder = GlobSetBuilder::new();
         for file_glob in &warning_info.files {
-            glob_builder.add(Glob::new(file_glob).expect("Bad glob pattern"));
+            glob_builder.add(Glob::new(file_glob)?);
         }
         result.insert(
             warning_t.clone(),
-            glob_builder.build().expect("Could not build globset"),
+            glob_builder.build()?,
         );
     }
-    result
+    Ok(result)
 }

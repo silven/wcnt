@@ -23,7 +23,10 @@ regex = "1.0"
 # Clap for parsing arguments
 clap = "2.0"
 # ID Arena for interning of strings
-id-arena = "*"
+id-arena = "2.2"
+# logging is good
+log = "0.4"
+env_logger = "0.7"
 
 # Dev dependencies for testing
 [dev-dependencies]
