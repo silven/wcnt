@@ -52,7 +52,9 @@ impl LimitsFile {
         for (kind, threshold) in &self.inner {
             let kind_str = arena.lookup(kind.0).unwrap();
             match threshold {
-                Threshold::Number(x) => { writeln!(buff, "{} = {}", kind_str, x); },
+                Threshold::Number(x) => {
+                    writeln!(buff, "{} = {}", kind_str, x);
+                }
                 Threshold::PerCategory(dict) => {
                     writeln!(buff, "[{}]", kind_str);
                     for (cat, x) in dict {
@@ -60,13 +62,13 @@ impl LimitsFile {
                             Some(cat_id) => {
                                 let cat_str = arena.lookup(cat_id).unwrap();
                                 writeln!(buff, "{} = {}", cat_str, x);
-                            },
+                            }
                             None => {
-                                writeln!(buff, "_ = {}",  x);
+                                writeln!(buff, "_ = {}", x);
                             }
                         }
                     }
-                },
+                }
             }
         }
         write!(buff, "}}");
@@ -80,7 +82,6 @@ pub(crate) enum Threshold {
     PerCategory(HashMap<Category, u64>),
 }
 
-
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct LimitsEntry {
     pub(crate) limits_file: Option<PathBuf>,
@@ -89,11 +90,7 @@ pub(crate) struct LimitsEntry {
 }
 
 impl LimitsEntry {
-    pub fn new(
-        limits_file: Option<&Path>,
-        kind: Kind,
-        category: Category,
-    ) -> Self {
+    pub fn new(limits_file: Option<&Path>, kind: Kind, category: Category) -> Self {
         LimitsEntry {
             limits_file: limits_file.map(|x| PathBuf::from(x)),
             kind: kind,
@@ -133,13 +130,18 @@ impl core::fmt::Debug for LimitsEntry {
     }
 }
 
-
-pub(crate) fn parse_limits_file(arena: &mut SearchableArena, file: &Path) -> Result<LimitsFile, Box<dyn Error>> {
+pub(crate) fn parse_limits_file(
+    arena: &mut SearchableArena,
+    file: &Path,
+) -> Result<LimitsFile, Box<dyn Error>> {
     let file_contents = utils::read_file(file)?;
     parse_limits_file_from_str(arena, &file_contents)
 }
 
-fn parse_limits_file_from_str(arena: &mut SearchableArena, cfg: &str) -> Result<LimitsFile, Box<dyn Error>> {
+fn parse_limits_file_from_str(
+    arena: &mut SearchableArena,
+    cfg: &str,
+) -> Result<LimitsFile, Box<dyn Error>> {
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum RawLimitEntry {
@@ -152,24 +154,25 @@ fn parse_limits_file_from_str(arena: &mut SearchableArena, cfg: &str) -> Result<
 
     for (key, val) in as_raw_dict.into_iter() {
         // TODO; Turn this is a prettier error
-        let kind_id = arena.get_id(&key).unwrap_or_else(|| panic!("Have not seen this kind `{}` before!", key));
+        let kind_id = arena
+            .get_id(&key)
+            .unwrap_or_else(|| panic!("Have not seen this kind `{}` before!", key));
         let converted = match val {
             RawLimitEntry::Number(x) => Threshold::Number(x),
-            RawLimitEntry::PerCategory(dict) => {
-                Threshold::PerCategory(dict.into_iter().map(|(cat, x)| {
-                    let cat_id = arena.get_id(&cat).unwrap_or_else(|| arena.insert(cat));
-                    (Category::new(cat_id), x)
-                }).collect())
-            },
+            RawLimitEntry::PerCategory(dict) => Threshold::PerCategory(
+                dict.into_iter()
+                    .map(|(cat, x)| {
+                        let cat_id = arena.get_id(&cat).unwrap_or_else(|| arena.insert(cat));
+                        (Category::new(cat_id), x)
+                    })
+                    .collect(),
+            ),
         };
         result.insert(Kind::new(kind_id), converted);
     }
 
-    Ok(LimitsFile {
-        inner: result,
-    })
+    Ok(LimitsFile { inner: result })
 }
-
 
 #[cfg(test)]
 mod test {
@@ -222,9 +225,12 @@ mod test {
 
         let cat_bad_code = Category::new(arena.get_id("-wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-wpedantic").expect("pedantic"));
-        let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 1), (cat_pedantic, 2)].into_iter().collect();
+        let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 1), (cat_pedantic, 2)]
+            .into_iter()
+            .collect();
         assert_eq!(
             limits.get(&gcc_kind),
-            Some(&Threshold::PerCategory(expected_mapping)));
+            Some(&Threshold::PerCategory(expected_mapping))
+        );
     }
 }

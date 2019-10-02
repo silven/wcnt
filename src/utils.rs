@@ -17,11 +17,11 @@ impl SearchableArena {
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item=(Id<String>, &String)> {
+    fn iter(&self) -> impl Iterator<Item = (Id<String>, &String)> {
         self.arena.iter()
     }
 
-    pub fn insert(&mut self, val: String) -> Id<String>{
+    pub fn insert(&mut self, val: String) -> Id<String> {
         let id = self.arena.alloc(val);
         let reference = self.arena.get(id).unwrap();
         self.mapping.insert(reference.clone(), id);

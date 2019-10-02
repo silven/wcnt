@@ -1,25 +1,26 @@
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
+use log::{error, trace};
 
-use crate::{CountsTowardsLimit, utils};
 use crate::limits::{Category, LimitsEntry, LimitsFile};
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
-use std::sync::Arc;
+use crate::{utils, CountsTowardsLimit};
 
 pub(crate) struct LogSearchResult {
     pub(crate) string_arena: SearchableArena,
     pub(crate) warnings: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
 }
 
-pub(crate) fn search_files<'limits>(
+pub(crate) fn search_files(
     settings: &Settings,
     log_files: Vec<(PathBuf, Vec<Kind>)>,
-    limits: &'limits HashMap<PathBuf, LimitsFile>,
-) -> Receiver<Result<LogSearchResult, PathBuf>> {
+    limits: &HashMap<PathBuf, LimitsFile>,
+) -> Receiver<Result<LogSearchResult, (PathBuf, std::io::Error)>> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
     crossbeam::scope(|scope| {
@@ -46,34 +47,52 @@ pub(crate) fn search_files<'limits>(
                                     warnings: HashMap::new(),
                                 };
 
-                                let mut limits_cache: HashMap<PathBuf, Option<&Path>> = HashMap::new();
+                                let mut limits_cache: HashMap<PathBuf, Option<&Path>> =
+                                    HashMap::new();
                                 for matching in regex.captures_iter(&file_contents_handle) {
                                     // What file is the culprit?
-                                    let culprit_file = matching.name("file").map(|m| PathBuf::from(m.as_str())).unwrap();
+                                    let culprit_file = matching
+                                        .name("file")
+                                        .map(|m| PathBuf::from(m.as_str()))
+                                        .unwrap();
                                     // Try to identify the warning using line, column and category
-                                    let line: Option<NonZeroUsize> = matching.name("line").map(|m| m.as_str().parse().unwrap());
-                                    let column: Option<NonZeroUsize> =
-                                        matching.name("column").map(|m| m.as_str().parse().unwrap());
-                                    let cat_str = matching
-                                        .name("category")
-                                        .map(|m| m.as_str());
+                                    let line: Option<NonZeroUsize> =
+                                        matching.name("line").map(|m| m.as_str().parse().unwrap());
+                                    let column: Option<NonZeroUsize> = matching
+                                        .name("column")
+                                        .map(|m| m.as_str().parse().unwrap());
+                                    let cat_str = matching.name("category").map(|m| m.as_str());
 
                                     // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.rust sort
                                     let limits_file = if limits_cache.contains_key(&culprit_file) {
                                         *limits_cache.get(&culprit_file).unwrap()
                                     } else {
-                                        *limits_cache.entry(culprit_file.clone())
-                                            .or_insert_with(|| find_limits_for(&limits, culprit_file.as_path()))
+                                        *limits_cache.entry(culprit_file.clone()).or_insert_with(
+                                            || find_limits_for(&limits, culprit_file.as_path()),
+                                        )
                                     };
 
                                     let category = match cat_str {
-                                        Some(cat_str) => Category::new(result.string_arena.get_or_insert(cat_str)),
+                                        Some(cat_str) => Category::new(
+                                            result.string_arena.get_or_insert(cat_str),
+                                        ),
                                         None => Category::none(),
                                     };
-                                    let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category.clone());
-                                    let warning = CountsTowardsLimit::new(culprit_file, line, column, kind.clone(), category);
+                                    let limits_entry = LimitsEntry::new(
+                                        limits_file,
+                                        kind.clone(),
+                                        category.clone(),
+                                    );
+                                    let warning = CountsTowardsLimit::new(
+                                        culprit_file,
+                                        line,
+                                        column,
+                                        kind.clone(),
+                                        category,
+                                    );
 
-                                    result.warnings
+                                    result
+                                        .warnings
                                         .entry(limits_entry)
                                         .or_insert_with(HashSet::new)
                                         .insert(warning);
@@ -83,13 +102,14 @@ pub(crate) fn search_files<'limits>(
                         }
                     }
                     Err(e) => {
-                        eprintln!("Could not read log file: {}, {}", log_file.display(), e);
-                        tx.send(Err(log_file));
+                        error!("Could not read log file: {}, {}", log_file.display(), e);
+                        tx.send(Err((log_file, e)));
                     }
                 }
             });
         }
-    }).expect("Could not create crossbeam scope.");
+    })
+    .expect("Could not create crossbeam scope.");
     rx
 }
 
@@ -110,7 +130,7 @@ fn find_limits_for<'a, 'b>(
             let limit_file_folder = found_limit_file.parent().unwrap();
             //println!("Checking {} against {}", limit_file_folder.display(), parent_dir.display());
             if limit_file_folder.ends_with(parent_dir) {
-                println!(
+                trace!(
                     "Culprit {} should count towards limits defined in {}",
                     culprit_file.display(),
                     found_limit_file.display()

@@ -44,7 +44,9 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
 
 fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, GlobSet>) {
     if entry.path().ends_with("Limits.toml") {
-        tx.send(FileData::LimitsFile(entry.path().canonicalize().expect("Could not make abs")));
+        tx.send(FileData::LimitsFile(
+            entry.path().canonicalize().expect("Could not make abs"),
+        ));
     } else {
         let mut file_ts = vec![];
         for (file_t, globs) in types {

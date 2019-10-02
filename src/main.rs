@@ -7,18 +7,21 @@ use std::path::PathBuf;
 use clap::{App, Arg};
 use env_logger;
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use log::{debug, warn, trace};
+use log::{debug, error, trace, warn};
 use serde::export::fmt::Debug;
 use toml;
 
 use crate::limits::{Category, LimitsEntry, LimitsFile, Threshold};
 use crate::search_for_files::FileData;
+use crate::search_in_files::LogSearchResult;
 use crate::settings::{Kind, Settings};
+use crate::utils::SearchableArena;
+use crossbeam_channel::Receiver;
 
+mod limits;
 mod search_for_files;
 mod search_in_files;
 mod settings;
-mod limits;
 mod utils;
 
 #[derive(PartialEq, Eq, Hash)]
@@ -65,15 +68,16 @@ impl CountsTowardsLimit {
     }
 }
 
-fn flatten_limits(
-    raw_form: &HashMap<PathBuf, LimitsFile>,
-) -> HashMap<LimitsEntry, u64> {
+fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntry, u64> {
     let mut result: HashMap<LimitsEntry, u64> = HashMap::new();
     for (path, data) in raw_form {
         for (kind, entry) in data.iter() {
             match entry {
                 Threshold::Number(x) => {
-                    result.insert(LimitsEntry::new(Some(path), kind.clone(), Category::none()), *x);
+                    result.insert(
+                        LimitsEntry::new(Some(path), kind.clone(), Category::none()),
+                        *x,
+                    );
                 }
                 Threshold::PerCategory(cats) => {
                     for (cat, x) in cats {
@@ -159,7 +163,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 log_files.push((log_file, kinds));
             }
             FileData::LimitsFile(path) => {
-                let limit = limits::parse_limits_file(&mut settings.string_arena, &path).expect("OMFG");
+                let limit =
+                    limits::parse_limits_file(&mut settings.string_arena, &path).expect("OMFG");
                 limits.insert(path, limit);
             }
         }
@@ -171,31 +176,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let rx = search_in_files::search_files(&settings, log_files, &limits);
-
-    let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
-    for search_result_result in rx {
-
-        let search_result = match search_result_result {
-            Ok(r) => r,
-            Err(log_file) => {
-                warn!("Could not open log file `{}`", log_file.display());
-                continue;
-            }
-        };
-
-        let incoming_arena = search_result.string_arena;
-        settings.string_arena.add_all(&incoming_arena);
-        for (mut limits_entry, warnings) in search_result.warnings {
-            limits_entry.category.convert(&incoming_arena, &settings.string_arena);
-            results
-                .entry(limits_entry)
-                .or_insert_with(HashSet::new)
-                .extend(warnings.into_iter().map(|mut w| {
-                    w.category.convert(&incoming_arena, &settings.string_arena);
-                    w
-                }));
-        }
-    }
+    let results = compute_results(&mut settings.string_arena, rx);
 
     // Finally, check the results
     let mut flat_limits = flatten_limits(&limits);
@@ -204,45 +185,123 @@ fn main() -> Result<(), Box<dyn Error>> {
         flat_limits.insert(entry_for_kind_default, field.default.unwrap_or(0));
     }
 
-    check_warnings_against_thresholds(&flat_limits, &results);
-    println!("Done.");
-    Ok(())
-}
-
-fn check_warnings_against_thresholds(flat_limits: &HashMap<LimitsEntry, u64>, results: &HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>) {
-    for (limits_entry, warnings) in results {
-        let num_warnings = warnings.len() as u64;
-        match flat_limits.get(&limits_entry) {
-            Some(x) => if num_warnings > *x {
-                    warn!(
-                        "Number of errors exceeded! (for category for {:?}/{:?}={})",
-                        limits_entry.kind, limits_entry.category, *x
-                    );
-                },
-            None => match flat_limits.get(&limits_entry.without_category()) {
-                Some(x) =>  if num_warnings > *x {
-                    warn!(
-                        "Number of errors exceeded! (from blanket for {:?}={})",
-                        limits_entry.kind, *x
-                    );
-                },
-                None => { panic!("Could not find an entry to compare `{:?}` against", limits_entry); }
-            },
-        }
+    let violations = check_warnings_against_thresholds(&flat_limits, &results);
+    if !violations.is_empty() {
+        Err(format!(
+            "Found {} violations against specified limits.",
+            violations.len()
+        )
+        .into())
+    } else {
+        println!("Done.");
+        Ok(())
     }
 }
 
-fn construct_types_info(settings_dict: &Settings) -> Result<HashMap<Kind, GlobSet>, Box<dyn Error>> {
+fn compute_results(
+    arena: &mut SearchableArena,
+    rx: Receiver<Result<LogSearchResult, (PathBuf, std::io::Error)>>,
+) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
+    let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
+    for search_result_result in rx {
+        let search_result = match search_result_result {
+            Ok(r) => r,
+            Err((log_file, err)) => {
+                warn!(
+                    "Could not open log file `{}`. Reason: `{}`",
+                    log_file.display(),
+                    err
+                );
+                // TODO: This should be a cause to abort
+                continue;
+            }
+        };
+        for (entry, warnings) in process_search_results(arena, search_result) {
+            results
+                .entry(entry)
+                .or_insert_with(HashSet::new)
+                .extend(warnings);
+        }
+    }
+    results
+}
+
+fn process_search_results(
+    arena: &mut SearchableArena,
+    search_result: LogSearchResult,
+) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
+    let incoming_arena = search_result.string_arena;
+    arena.add_all(&incoming_arena);
+    let mut results = HashMap::new();
+
+    for (mut limits_entry, warnings) in search_result.warnings {
+        limits_entry.category.convert(&incoming_arena, &arena);
+        results
+            .entry(limits_entry)
+            .or_insert_with(HashSet::new)
+            .extend(warnings.into_iter().map(|mut w| {
+                w.category.convert(&incoming_arena, &arena);
+                w
+            }));
+    }
+    results
+}
+
+struct Violation<'entry> {
+    entry: &'entry LimitsEntry,
+    threshold: u64,
+    actual: u64,
+}
+
+impl<'entry> Violation<'entry> {
+    fn update_threshold(mut self, threshold: u64) -> Self {
+        self.threshold = threshold;
+        self
+    }
+}
+
+fn check_warnings_against_thresholds<'entries, 'x>(
+    flat_limits: &'x HashMap<LimitsEntry, u64>,
+    results: &'entries HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
+) -> Vec<Violation<'entries>> {
+    let mut violations = Vec::with_capacity(flat_limits.len());
+    for (limits_entry, warnings) in results {
+        let num_warnings = warnings.len() as u64;
+        let threshold = match flat_limits.get(&limits_entry) {
+            Some(x) => *x,
+            None => match flat_limits.get(&limits_entry.without_category()) {
+                Some(x) => *x,
+                None => {
+                    error!(
+                        "Could not find an entry to compare `{:?}` against",
+                        limits_entry
+                    );
+                    0
+                }
+            },
+        };
+
+        if num_warnings > threshold {
+            violations.push(Violation {
+                entry: &limits_entry,
+                threshold: threshold,
+                actual: num_warnings,
+            });
+        }
+    }
+    violations
+}
+
+fn construct_types_info(
+    settings_dict: &Settings,
+) -> Result<HashMap<Kind, GlobSet>, Box<dyn Error>> {
     let mut result = HashMap::new();
     for (warning_t, warning_info) in settings_dict.iter() {
         let mut glob_builder = GlobSetBuilder::new();
         for file_glob in &warning_info.files {
             glob_builder.add(Glob::new(file_glob)?);
         }
-        result.insert(
-            warning_t.clone(),
-            glob_builder.build()?,
-        );
+        result.insert(warning_t.clone(), glob_builder.build()?);
     }
     Ok(result)
 }

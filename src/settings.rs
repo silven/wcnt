@@ -58,7 +58,6 @@ impl Settings {
             writeln!(buff, "regex = {:?}", field.regex);
             writeln!(buff, "files = [{}]", field.files.join(", "));
             writeln!(buff, "default = {}", field.default.unwrap_or(0));
-
         }
         write!(buff, "}}");
         buff
@@ -81,17 +80,22 @@ impl<'de> Deserialize<'de> for Settings {
         let mut result = HashMap::new();
         let mut string_arena = SearchableArena::new();
         for (key, val) in raw.into_iter() {
-
             let captures: HashSet<&str> = val.regex.capture_names().flatten().collect();
             if !captures.contains("file") {
-                let msg = format!("Regex for kind '{}' does not capture the required field `file`.", key);
+                let msg = format!(
+                    "Regex for kind '{}' does not capture the required field `file`.",
+                    key
+                );
                 return Err(serde::de::Error::custom(msg));
             }
 
             let kind_id = string_arena.insert(key);
             result.insert(Kind(kind_id), val);
         }
-        Ok(Settings { string_arena: string_arena, inner: result })
+        Ok(Settings {
+            string_arena: string_arena,
+            inner: result,
+        })
     }
 }
 
@@ -120,7 +124,6 @@ impl<'de> Deserialize<'de> for SettingsField {
         })
     }
 }
-
 
 #[cfg(test)]
 mod test {
