@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use id_arena::Id;
@@ -25,8 +25,9 @@ impl Category {
 
     pub fn remap_id(&mut self, from: &SearchableArena, to: &SearchableArena) {
         if let Some(cat_id) = self.0 {
-            let cat_str = from.lookup(cat_id)
-                .expect("String not present in new arena. Did you forget to merge?");
+            let cat_str = from
+                .lookup(cat_id)
+                .expect("String not present in new arena. Did you forget to call add_all?");
             self.0 = to.get_id(cat_str);
         }
     }
@@ -106,28 +107,42 @@ impl LimitsEntry {
             category: Category::none(),
         }
     }
-}
 
-impl core::fmt::Debug for LimitsEntry {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    pub(crate) fn display(&self, arena: &SearchableArena) -> impl Display {
+        use std::fmt::Write;
+
+        let mut buff = String::new();
         match self.limits_file {
             Some(ref pb) => {
-                // Silly way to take the last 3 components of the path
-                let tail: PathBuf = pb
-                    .components()
-                    .rev()
-                    .take(3)
-                    .collect::<PathBuf>()
-                    .components()
-                    .rev()
-                    .collect();
-                write!(f, "..{}", tail.display());
+                let tmp: PathBuf; // Sometimes I think things are a little silly
+                let path = if pb.components().count() > 5 {
+                    // Silly way to take the last 4 components of the path
+                    tmp = PathBuf::from("...").join(
+                        pb.components()
+                            .rev()
+                            .take(4)
+                            .collect::<PathBuf>()
+                            .components()
+                            .rev()
+                            .collect::<PathBuf>(),
+                    );
+                    &tmp
+                } else {
+                    pb
+                };
+                write!(buff, "{}", path.display());
             }
             None => {
-                write!(f, "_");
+                write!(buff, "_");
             }
         };
-        write!(f, ":[{:?}/{:?}]", self.kind, self.category)
+        let kind_str = arena.lookup(self.kind.0).unwrap();
+        let cat_str = match self.category {
+            Category(Some(cat_id)) => arena.lookup(cat_id).unwrap(),
+            Category(None) => "_",
+        };
+        write!(buff, ":[{}/{}]", kind_str, cat_str);
+        buff
     }
 }
 
@@ -137,6 +152,7 @@ pub(crate) fn parse_limits_file(
 ) -> Result<LimitsFile, Box<dyn Error>> {
     let file_contents = utils::read_file(file)?;
     parse_limits_file_from_str(arena, &file_contents)
+        .map_err(|e| format!("Could not parse `{}`: Reason `{}`", file.display(), e).into())
 }
 
 fn parse_limits_file_from_str(
@@ -145,25 +161,29 @@ fn parse_limits_file_from_str(
 ) -> Result<LimitsFile, Box<dyn Error>> {
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum RawLimitEntry {
+    enum RawLimitEntry<'input> {
         Number(u64),
-        PerCategory(HashMap<String, u64>),
+        #[serde(borrow)]
+        PerCategory(HashMap<&'input str, u64>),
     }
 
-    let as_raw_dict: HashMap<String, RawLimitEntry> = toml::from_str(&cfg)?;
+    let as_raw_dict: HashMap<&str, RawLimitEntry> = toml::from_str(&cfg)?;
     let mut result = HashMap::new();
 
     for (key, val) in as_raw_dict.into_iter() {
         // TODO; Turn this is a prettier error
-        let kind_id = arena
-            .get_id(&key)
-            .unwrap_or_else(|| panic!("Have not seen this kind `{}` before!", key));
+        let kind_id = arena.get_id(&key).ok_or_else(|| {
+            format!(
+                "Referred to kind `{}` which has not been configured in the settings.",
+                key
+            )
+        })?;
         let converted = match val {
             RawLimitEntry::Number(x) => Limit::Number(x),
             RawLimitEntry::PerCategory(dict) => Limit::PerCategory(
                 dict.into_iter()
-                    .map(|(cat, x)| {
-                        let cat_id = arena.get_id(&cat).unwrap_or_else(|| arena.insert(cat));
+                    .map(|(cat_str, x)| {
+                        let cat_id = arena.get_or_insert(cat_str);
                         (Category::new(cat_id), x)
                     })
                     .collect(),
@@ -189,7 +209,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Have not seen this kind `gcc` before!")]
+    #[should_panic(expected = "kind `gcc`")]
     fn cannot_deserialize_with_unknown_kind() {
         let limits_str = r#"
         gcc = 1

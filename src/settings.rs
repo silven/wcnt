@@ -6,6 +6,7 @@ use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
 
 use crate::utils::SearchableArena;
+use std::borrow::Cow;
 
 #[derive(Debug)]
 struct MyRegex(Regex);
@@ -15,8 +16,8 @@ impl<'de> Deserialize<'de> for MyRegex {
     where
         D: Deserializer<'de>,
     {
-        let as_str = String::deserialize(deserializer)?;
-        let as_regex = RegexBuilder::new(&as_str)
+        let as_str = <&str>::deserialize(deserializer)?;
+        let as_regex = RegexBuilder::new(as_str)
             .multi_line(true)
             .build()
             .map_err(serde::de::Error::custom)?;
@@ -105,8 +106,9 @@ impl<'de> Deserialize<'de> for SettingsField {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        struct RawSettings {
-            regex: String,
+        struct RawSettings<'input> {
+            #[serde(borrow)]
+            regex: Cow<'input, str>,
             files: Vec<String>,
             default: Option<u64>,
         }

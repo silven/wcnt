@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
@@ -8,7 +8,7 @@ use clap::{App, Arg};
 use crossbeam_channel::Receiver;
 use env_logger;
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use log::{debug, error, trace, warn};
+use log::{debug, error, info, trace, warn};
 use serde::export::fmt::Debug;
 use toml;
 
@@ -94,6 +94,7 @@ fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntr
 struct Arguments {
     start_dir: PathBuf,
     config_file: PathBuf,
+    verbose: bool,
 }
 
 fn parse_args() -> Result<Arguments, std::io::Error> {
@@ -115,12 +116,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .help("Use this config file. (Instead of start-dir/Wcnt.toml)")
                 .takes_value(true),
         )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
+        .arg(Arg::with_name("verbose").short("v").help("Be more verbose"))
         .get_matches();
 
     let cwd = std::env::current_dir()?;
@@ -134,9 +130,12 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         .map(PathBuf::from)
         .unwrap_or_else(|| start_dir.join("Wcnt.toml").to_path_buf());
 
+    let be_verbose = matches.is_present("verbose");
+
     Ok(Arguments {
         start_dir: start_dir,
         config_file: config_file,
+        verbose: be_verbose,
     })
 }
 
@@ -163,8 +162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 log_files.push((log_file, kinds));
             }
             FileData::LimitsFile(path) => {
-                let limit =
-                    limits::parse_limits_file(&mut settings.string_arena, &path)?;
+                let limit = limits::parse_limits_file(&mut settings.string_arena, &path)?;
                 limits.insert(path, limit);
             }
         }
@@ -190,6 +188,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Finally, check the results
     let violations = check_warnings_against_thresholds(&flat_limits, &results);
     if !violations.is_empty() {
+        if args.verbose {
+            for v in &violations {
+                println!("{}", v.display(&settings.string_arena));
+            }
+        }
         Err(format!(
             "Found {} violations against specified limits.",
             violations.len()
@@ -261,6 +264,15 @@ impl<'entry> Violation<'entry> {
         self.threshold = threshold;
         self
     }
+
+    fn display(&self, arena: &SearchableArena) -> impl Display {
+        format!(
+            "{} ({} > {})",
+            self.entry.display(&arena),
+            self.actual,
+            self.threshold
+        )
+    }
 }
 
 fn check_warnings_against_thresholds<'entries, 'x>(
@@ -275,9 +287,9 @@ fn check_warnings_against_thresholds<'entries, 'x>(
             None => match flat_limits.get(&limits_entry.without_category()) {
                 Some(x) => *x,
                 None => {
-                    error!(
+                    info!(
                         "Could not find an entry to compare `{:?}` against",
-                        limits_entry
+                        warnings
                     );
                     0
                 }
@@ -309,7 +321,6 @@ fn construct_types_info(
     Ok(result)
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -335,7 +346,6 @@ mod test {
         assert!(!globset.is_match("/etc/passwd"));
     }
 
-
     #[test]
     fn process_search_results_should_remap_the_interned_strings() {
         let mut arena_1 = SearchableArena::new();
@@ -348,19 +358,24 @@ mod test {
         let kind = Kind::new(arena_2.insert("kind".to_owned()));
         let category = Category::new(arena_2.insert("category".to_owned()));
 
-        let our_limit_entry = LimitsEntry::new(Some("/tmp/Limits.toml".as_ref()), kind.clone(), category.clone());
-        let our_warning =
-            CountsTowardsLimit::new(
-                PathBuf::from("/tmp/Limits.toml"),
-                Some(NonZeroUsize::new(1).unwrap()),
-                Some(NonZeroUsize::new(1).unwrap()),
-                kind,
-                category
-            );
+        let our_limit_entry = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            category.clone(),
+        );
+        let our_warning = CountsTowardsLimit::new(
+            PathBuf::from("/tmp/Limits.toml"),
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(NonZeroUsize::new(1).unwrap()),
+            kind,
+            category,
+        );
 
         let search_result = {
             let mut dict = HashMap::new();
-            dict.entry(our_limit_entry).or_insert_with(HashSet::new).insert(our_warning);
+            dict.entry(our_limit_entry)
+                .or_insert_with(HashSet::new)
+                .insert(our_warning);
             LogSearchResult {
                 string_arena: arena_2,
                 warnings: dict,
