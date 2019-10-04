@@ -49,12 +49,12 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
         ))
         .expect("Could not send FileData::LimitsFile.");
     } else {
-        let mut file_ts = vec![];
-        for (file_t, globs) in types {
-            if globs.is_match(entry.path()) {
-                file_ts.push(file_t.clone());
-            }
-        }
+        let file_ts: Vec<Kind> = types.iter()
+            .filter(|(_ft, globs)|
+                globs.is_match(entry.path()))
+            .map(|(ft, _glob)| ft.clone())
+            .collect();
+
         if !file_ts.is_empty() {
             let abs_path = entry
                 .path()
