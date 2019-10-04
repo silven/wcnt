@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
@@ -5,9 +6,8 @@ use id_arena::Id;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
 
-use crate::utils::SearchableArena;
-use std::borrow::Cow;
 use crate::utils;
+use crate::utils::SearchableArena;
 
 #[derive(Debug)]
 struct MyRegex(Regex);

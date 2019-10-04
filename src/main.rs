@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Display;
@@ -17,7 +18,6 @@ use crate::search_in_files::LogSearchResult;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::CountsTowardsLimit;
-use std::cmp::Ordering;
 
 mod limits;
 mod search_for_files;
@@ -84,10 +84,12 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .help("Use this config file. (Instead of start-dir/Wcnt.toml)")
                 .takes_value(true),
         )
-        .arg(Arg::with_name("verbose")
-            .short("v")
-            .multiple(true)
-            .help("Be more verbose"))
+        .arg(
+            Arg::with_name("verbose")
+                .short("v")
+                .multiple(true)
+                .help("Be more verbose"),
+        )
         .get_matches();
 
     let cwd = std::env::current_dir()?;
@@ -165,7 +167,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!("{}", v.display(&settings.string_arena));
                 if args.is_very_verbose() {
                     let warnings = results.get(v.entry).expect("Got the key from here..");
-                    let mut warnings_vec: Vec<&CountsTowardsLimit> = Vec::with_capacity(warnings.len());
+                    let mut warnings_vec: Vec<&CountsTowardsLimit> =
+                        Vec::with_capacity(warnings.len());
                     warnings_vec.extend(warnings.iter());
                     warnings_vec.sort();
                     for w in &warnings_vec {
@@ -226,7 +229,11 @@ fn process_search_results(
         results
             .entry(limits_entry)
             .or_insert_with(HashSet::new)
-            .extend(warnings.into_iter().map(|w| w.remap(&incoming_arena, &arena)));
+            .extend(
+                warnings
+                    .into_iter()
+                    .map(|w| w.remap(&incoming_arena, &arena)),
+            );
     }
     results
 }
@@ -238,13 +245,18 @@ struct Violation<'entry> {
 }
 
 impl<'entry> Violation<'entry> {
-    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+    pub fn display<'me, 'arena: 'me>(
+        &'me self,
+        arena: &'arena SearchableArena,
+    ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
-            write!(f,
+            write!(
+                f,
                 "{} ({} > {})",
                 self.entry.display(&arena),
                 self.actual,
-                self.threshold)
+                self.threshold
+            )
         })
     }
 }
@@ -257,7 +269,9 @@ impl<'e> PartialOrd for Violation<'e> {
 
 impl<'e> PartialEq for Violation<'e> {
     fn eq(&self, other: &Violation) -> bool {
-        self.entry.eq(&other.entry) && self.threshold.eq(&other.threshold) && self.actual.eq(&other.actual)
+        self.entry.eq(&other.entry)
+            && self.threshold.eq(&other.threshold)
+            && self.actual.eq(&other.actual)
     }
 }
 
@@ -317,9 +331,11 @@ fn construct_types_info(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::warnings::Description;
     use std::num::NonZeroUsize;
+
+    use crate::warnings::Description;
+
+    use super::*;
 
     #[test]
     fn types_info_conversion_works() {

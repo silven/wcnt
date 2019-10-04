@@ -7,9 +7,9 @@ use crossbeam_channel::Receiver;
 use log::{error, trace};
 use regex::Regex;
 
-use crate::utils;
 use crate::limits::{Category, LimitsEntry, LimitsFile};
 use crate::settings::{Kind, Settings};
+use crate::utils;
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
 
@@ -109,7 +109,14 @@ fn build_regex_searcher(
             None => Description::none(),
         };
         let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category.clone());
-        let warning = CountsTowardsLimit::new(culprit_file, line, column, kind.clone(), category, description);
+        let warning = CountsTowardsLimit::new(
+            culprit_file,
+            line,
+            column,
+            kind.clone(),
+            category,
+            description,
+        );
 
         result
             .warnings
@@ -133,8 +140,12 @@ fn find_limits_for<'a, 'b>(
         }
         // TODO: This should be able to be done more efficiently
         for found_limit_file in limits.keys() {
-            let limit_file_folder = found_limit_file.parent()
-                .unwrap_or_else(|| panic!("Limits file `{}` has no parent!", found_limit_file.display()));
+            let limit_file_folder = found_limit_file.parent().unwrap_or_else(|| {
+                panic!(
+                    "Limits file `{}` has no parent!",
+                    found_limit_file.display()
+                )
+            });
             if limit_file_folder.ends_with(parent_dir) {
                 trace!(
                     "Culprit `{}` should count towards limits defined in `{}`",

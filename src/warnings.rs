@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::Display;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
@@ -6,9 +7,8 @@ use id_arena::Id;
 
 use crate::limits::Category;
 use crate::settings::Kind;
-use crate::utils::SearchableArena;
-use std::fmt::Display;
 use crate::utils;
+use crate::utils::SearchableArena;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct Description(Option<Id<String>>);
@@ -33,7 +33,11 @@ impl Description {
 
     pub fn to_str<'arena>(&self, arena: &'arena SearchableArena) -> Option<&'arena str> {
         if let Some(desc_id) = self.0 {
-            Some(arena.lookup(desc_id).expect("Description not present in this arena."))
+            Some(
+                arena
+                    .lookup(desc_id)
+                    .expect("Description not present in this arena."),
+            )
         } else {
             None
         }
@@ -93,19 +97,20 @@ impl CountsTowardsLimit {
         self
     }
 
-    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+    pub fn display<'me, 'arena: 'me>(
+        &'me self,
+        arena: &'arena SearchableArena,
+    ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
             fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
                 val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
             }
             write!(
                 f,
-                "{}:{}:{} ({}/{})",
+                "{}:{}:{}",
                 self.culprit.display(),
                 fmt_nonzero(self.line),
                 fmt_nonzero(self.column),
-                self.kind.to_str(&arena),
-                self.category.to_str(&arena),
             )?;
 
             if let Some(desc_str) = self.description.to_str(&arena) {

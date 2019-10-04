@@ -54,7 +54,10 @@ impl LimitsFile {
         self.inner.get(kind)
     }
 
-    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+    pub fn display<'me, 'arena: 'me>(
+        &'me self,
+        arena: &'arena SearchableArena,
+    ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
             writeln!(f, "LimitsFile {{")?;
             for (kind, limit) in &self.inner {
@@ -106,7 +109,10 @@ impl LimitsEntry {
         }
     }
 
-    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+    pub fn display<'me, 'arena: 'me>(
+        &'me self,
+        arena: &'arena SearchableArena,
+    ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
             match self.limits_file {
                 Some(ref pb) => {
@@ -132,7 +138,12 @@ impl LimitsEntry {
                     write!(f, "_")?;
                 }
             };
-            write!(f, ":[{}/{}]", self.kind.to_str(&arena), self.category.to_str(&arena))
+            write!(
+                f,
+                ":[{}/{}]",
+                self.kind.to_str(&arena),
+                self.category.to_str(&arena)
+            )
         })
     }
 }
