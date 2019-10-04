@@ -1,10 +1,12 @@
+//! Misc utilities.
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
 
 use id_arena::{Arena, Id};
-use serde::export::PhantomData;
+use std::marker::PhantomData;
 
+/// A small helper struct, wrapping a closure, implementing Display by calling that closure.
 struct FmtHelper<'obj, F>
 where
     F: Fn(&mut std::fmt::Formatter<'_>) -> std::fmt::Result + 'obj,
@@ -22,6 +24,31 @@ where
     }
 }
 
+/// "Constructor" function for our FmtHelper
+///
+///  # Examples
+/// ```rust
+/// # use std::fmt::Display;
+/// # use wcnt::utils::fmt_helper;
+/// struct Foo { value: usize };
+/// struct AsBinary(bool);
+///
+/// impl Foo {
+///   fn new(value: usize) -> Self { Foo { value } }
+///   fn display(&self, as_binary: AsBinary) -> impl Display + '_ {
+///     fmt_helper(move |f| {
+///       if as_binary.0 {
+///         write!(f, "{:#b}", self.value)
+///       } else {
+///         write!(f, "{}", self.value)
+///       }
+///     })
+///   }
+/// }
+///
+/// let foo = Foo::new(5);
+/// assert_eq!(format!("{}", foo.display(AsBinary(true))), "0b101");
+/// ```
 pub fn fmt_helper<'obj>(
     fmt_fn: impl Fn(&mut std::fmt::Formatter<'_>) -> std::fmt::Result + 'obj,
 ) -> impl Display + 'obj {
@@ -32,6 +59,8 @@ pub fn fmt_helper<'obj>(
 }
 
 #[derive(Debug)]
+/// A String [Arena](../../id_arena/struct.Arena.html) that is also searchable, ie. you can get an
+/// ID back from a String, if the String already exists in the Arena.
 pub(crate) struct SearchableArena {
     arena: Arena<String>,
     // I'd like to store a &str here, but that would create a self-referential type
@@ -77,6 +106,7 @@ impl SearchableArena {
     }
 }
 
+/// Read a whole file into a String.
 pub(crate) fn read_file(filename: &Path) -> Result<String, std::io::Error> {
     use std::io::Read;
 

@@ -1,3 +1,5 @@
+//! Module responsible for searching inside files, looking for warnings and matching them against
+//! the identified limits.
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -14,16 +16,24 @@ use crate::utils;
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
 
-pub(crate) struct LogSearchResult {
+/// The LogSearchResult contains the information about what we found in a
+/// [log file](struct.LogFile.html). Because the searches happen in parallel, each LogSearchResult
+/// has its own [string arena](struct.SearchableArena.html) which must later be merged together
+/// in order to get sensible results. The search results maps all matches warnings to the
+/// corresponding [LimitsEntry](struct.LimitsEntry.html).
+pub(crate) struct LogSearchResults {
     pub(crate) string_arena: SearchableArena,
     pub(crate) warnings: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
 }
 
+/// Start the threads that searches through the `log_files`, using the regular expressions defined in
+/// `settings`. The `limits` are then used to match any "culprit" file (responsible for the warning)
+/// with a [LimitsFile](../limits/struct.Limits.html).
 pub(crate) fn search_files<'logs>(
     settings: &Settings,
     log_files: &'logs [LogFile],
     limits: &HashMap<PathBuf, LimitsFile>,
-) -> Receiver<Result<LogSearchResult, (&'logs LogFile, std::io::Error)>> {
+) -> Receiver<Result<LogSearchResults, (&'logs LogFile, std::io::Error)>> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
     crossbeam::scope(|scope| {
@@ -67,20 +77,24 @@ pub(crate) fn search_files<'logs>(
     rx
 }
 
+/// Search through the `file_contents` using the specified `regex`. Match any findings towards the
+/// appropriate [LimitsEntry](../limits/struct.LimitsEntry.html) and return the
+/// [search results](struct.LogSearchResults.html).
 fn build_regex_searcher(
     limits: &HashMap<PathBuf, LimitsFile>,
     kind: &Kind,
-    file_contents_handle: &Arc<String>,
+    file_contents: &str,
     regex: Regex,
-) -> LogSearchResult {
-    let mut result = LogSearchResult {
+) -> LogSearchResults {
+    let mut result = LogSearchResults {
         string_arena: SearchableArena::new(),
         warnings: HashMap::new(),
     };
-
+    // Let's cache the results we get from the calls to `find_limits_for`, in case we get multiple
+    // warnings from the same file.
     let mut limits_cache: HashMap<PathBuf, Option<&Path>> = HashMap::new();
 
-    for matching in regex.captures_iter(&file_contents_handle) {
+    for matching in regex.captures_iter(file_contents) {
         // What file is the culprit?
         let culprit_file = matching
             .name("file")
@@ -130,10 +144,13 @@ fn build_regex_searcher(
     result
 }
 
-fn find_limits_for<'a, 'b>(
-    limits: &'a HashMap<PathBuf, LimitsFile>,
-    culprit_file: &'b Path,
-) -> Option<&'a Path> {
+/// Every warning originates at a "culprit" file. These files are located under a Limits.toml file
+/// in the file system tree. `find_limits_for` finds the Limits.toml file "responsible" for the
+/// culprit, so we know which [limits](../limits/enum.Limit.html) to use.
+fn find_limits_for<'limits, 'culprit>(
+    limits: &'limits HashMap<PathBuf, LimitsFile>,
+    culprit_file: &'culprit Path,
+) -> Option<&'limits Path> {
     let mut maybe_parent = culprit_file.parent();
     while let Some(parent_dir) = maybe_parent {
         // This happens when parent of . turns into empty string.

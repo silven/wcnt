@@ -1,3 +1,4 @@
+//! Module responsible for structures and functionality related to Limits and Limit files.
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
@@ -12,6 +13,10 @@ use crate::utils;
 use crate::utils::SearchableArena;
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
+/// A Category represents a specific type of warning, hierarchically below a [Kind](../settings/struct.Kind.html).
+/// Examples of Categories could be [-Wunsued-value](https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html),
+/// or [F401](https://flake8.pycqa.org/en/latest/user/error-codes.html).
+/// The "_" category is the "wildcard" category. It matches all previously undeclared categories.
 pub(crate) struct Category(Option<Id<String>>);
 
 impl Category {
@@ -40,6 +45,8 @@ impl Category {
     }
 }
 
+/// A LimitsFile declares a [Limit](struct.Limit.html) for a [Kind](../settings/struct.Kind.html) as a threshold
+/// of number of warnings allowed.
 pub(crate) struct LimitsFile {
     inner: HashMap<Kind, Limit>,
 }
@@ -80,12 +87,17 @@ impl LimitsFile {
 }
 
 #[derive(Debug, PartialEq)]
+/// A Limit can either be a single number, which should hold for any [Category](struct.Category.html)
+/// of warnings for that [Kind](../settings/struct.Kind.html), or be declared per category.
 pub(crate) enum Limit {
     Number(u64),
     PerCategory(HashMap<Category, u64>),
 }
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Hash)]
+/// A LimitsEntry is a shorthand representation for a single numerical threshold within the system.
+/// To uniquely identify a [Limit](enum.Limit.html), you need a Path, a
+/// [Kind](../settings/struct.Kind.html) and a [Category](struct.Category.html).
 pub(crate) struct LimitsEntry {
     pub(crate) limits_file: Option<PathBuf>,
     pub(crate) kind: Kind,
@@ -148,15 +160,17 @@ impl LimitsEntry {
     }
 }
 
+/// Parse a `Limits.toml` file into a [LimitsFile](struct.LimitsFile.html) structure.
 pub(crate) fn parse_limits_file(
     arena: &mut SearchableArena,
     file: &Path,
 ) -> Result<LimitsFile, Box<dyn Error>> {
     let file_contents = utils::read_file(file)?;
     parse_limits_file_from_str(arena, &file_contents)
-        .map_err(|e| format!("Could not parse `{}`: Reason `{}`", file.display(), e).into())
+        .map_err(|e| format!("Could not parse `{}`. Reason `{}`", file.display(), e).into())
 }
 
+/// Parse the string `cfg` in toml format into a [LimitsFile](struct.LimitsFile.html) structure.
 fn parse_limits_file_from_str(
     arena: &mut SearchableArena,
     cfg: &str,

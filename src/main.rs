@@ -1,3 +1,11 @@
+//! wcnt (Warning Counter) is a small command line tool to count warnings in files, and map them
+//! to declared limits. It may then return an error code if any limit is breached.
+//!
+//! The tool is mainly useful for code bases which did not start out with "Warnings as Errors", but
+//! want to start clearing our their warnings little by little.
+//!
+//! Limits can be specified on a per directory tree basis with each Limits.toml file being used for
+//! that subtree until a deeper, more specific Limits.toml file is encountered.
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
@@ -12,7 +20,7 @@ use toml;
 
 use crate::limits::{Category, Limit, LimitsEntry, LimitsFile};
 use crate::search_for_files::{FileData, LogFile};
-use crate::search_in_files::LogSearchResult;
+use crate::search_in_files::LogSearchResults;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Violation};
@@ -21,9 +29,11 @@ mod limits;
 mod search_for_files;
 mod search_in_files;
 mod settings;
-mod utils;
+pub mod utils;
 mod warnings;
 
+/// Flattens the mapping of [LimitsFile](struct.LimitsFile.html)s to a more efficient representation
+/// using [Limit Entries](struct.LimitsEntry.html).
 fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntry, u64> {
     let mut result: HashMap<LimitsEntry, u64> = HashMap::new();
     for (path, data) in raw_form {
@@ -47,6 +57,7 @@ fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntr
 }
 
 #[derive(Debug)]
+/// Struct representing the command line arguments passed to program.
 struct Arguments {
     start_dir: PathBuf,
     config_file: PathBuf,
@@ -63,6 +74,7 @@ impl Arguments {
     }
 }
 
+/// Parse arguments to struct using Clap.
 fn parse_args() -> Result<Arguments, std::io::Error> {
     let matches = App::new("Warning Counter (wcnt)")
         .version(clap::crate_version!())
@@ -109,6 +121,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         verbosity: verbosity,
     })
 }
+
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -161,7 +174,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 type LogAndLimitFiles = (Vec<LogFile>, HashMap<PathBuf, LimitsFile>);
-
+/// Read from the channel producing file results and gather them up into lists.
 fn collect_file_results(
     arena: &mut SearchableArena,
     rx: Receiver<FileData>,
@@ -182,11 +195,13 @@ fn collect_file_results(
     Ok((log_files, limits))
 }
 
+/// Print the found [Violation](struct.Violation.html)s based on the verbosity level found in
+/// [Arguments](struct.Arguments.html)
 fn report_violations(
     args: Arguments,
     arena: &SearchableArena,
     results: &HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
-    violations: &Vec<Violation>,
+    violations: &[Violation],
 ) {
     if args.is_verbose() {
         for v in violations {
@@ -204,9 +219,12 @@ fn report_violations(
     }
 }
 
+/// Read from the channel producing [Log Search Result](struct.LogSearchResult.html)s and gather
+/// them in sets, removing duplicates and grouping them per appropriate
+/// [LimitsEntry](struct.LimitsEntry.html).
 fn gather_results_from_logs(
     arena: &mut SearchableArena,
-    rx: Receiver<Result<LogSearchResult, (&LogFile, std::io::Error)>>,
+    rx: Receiver<Result<LogSearchResults, (&LogFile, std::io::Error)>>,
 ) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
     let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
     for search_result_result in rx {
@@ -232,9 +250,11 @@ fn gather_results_from_logs(
     results
 }
 
+/// Process a single [Log Search Result](struct.LogSearchResult.html) and gather all warnings that
+/// should [count towards the limit](struct.CoundsTowardsLimit.html).
 fn process_search_results(
     arena: &mut SearchableArena,
-    search_result: LogSearchResult,
+    search_result: LogSearchResults,
 ) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
     let incoming_arena = search_result.string_arena;
     arena.add_all(&incoming_arena);
@@ -254,6 +274,9 @@ fn process_search_results(
     results
 }
 
+/// Check the collected [warnings](struct.CountsTowardsLimit.html) and compare the amount of them
+/// against the declared [limits](struct.LimitsEntry.html), resulting in a
+/// [Violation](struct.Violation.html) if that limit is breached.
 fn check_warnings_against_thresholds<'entries, 'x>(
     flat_limits: &'x HashMap<LimitsEntry, u64>,
     results: &'entries HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
@@ -276,6 +299,9 @@ fn check_warnings_against_thresholds<'entries, 'x>(
     violations
 }
 
+/// Gather the glob patterns from the [Settings](struct.Settings.html) and create a mapping from
+/// [Kind](struct.Kind.html) to patterns. So the later search step can figure out what regexes to
+/// use when searching through the file.
 fn construct_types_info(
     settings_dict: &Settings,
 ) -> Result<HashMap<Kind, GlobSet>, Box<dyn Error>> {
@@ -350,7 +376,7 @@ mod test {
             dict.entry(our_limit_entry)
                 .or_insert_with(HashSet::new)
                 .insert(our_warning);
-            LogSearchResult {
+            LogSearchResults {
                 string_arena: arena_2,
                 warnings: dict,
             }

@@ -1,3 +1,7 @@
+//! Module responsible for searching through the file system looking for files of interest.
+//!
+//! Files of interest are either Limits.toml files, or files matching the glob patterns registered
+//! for the different [Kind](../settings/struct.Kind.html)s or warnings.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,6 +13,9 @@ use ignore::{DirEntry, Error, WalkBuilder};
 use crate::settings::Kind;
 
 #[derive(Debug)]
+/// LogFile declares a file on the file system that has been identified as relevant to be searched.
+/// A LogFile may be searched multiple times to identify warnings related to multiple
+/// [Kind](struct.Kind.html)s, each with its own Regex.
 pub struct LogFile(PathBuf, Vec<Kind>);
 
 impl LogFile {
@@ -22,11 +29,15 @@ impl LogFile {
 }
 
 #[derive(Debug)]
+/// A partial result of the file search. Signal having found either a
+/// [LimitsFile](struct.LimitsFile.html) or a relevant [log file](struct.LogFile.html).
 pub(crate) enum FileData {
     LimitsFile(PathBuf),
     LogFile(LogFile),
 }
 
+/// Starts the threads which searches the `start_dir` for files. Uses `types` to know what
+/// [Kind](struct.Kind.html)s of warnings we should look for in the files.
 pub(crate) fn construct_file_searcher(
     start_dir: &Path,
     types: HashMap<Kind, GlobSet>,
@@ -46,6 +57,7 @@ pub(crate) fn construct_file_searcher(
     rx
 }
 
+/// Is the `entry` a file? (See [DirEntry](../../ignore/struct.DirEntry.html))
 fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
     if let Ok(dent) = entry {
         if dent.file_type()?.is_file() {
@@ -55,6 +67,7 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
     None
 }
 
+/// Process the `entry` and reply on the `tx` channel if this is an entry of interest.
 fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, GlobSet>) {
     if entry.path().ends_with("Limits.toml") {
         tx.send(FileData::LimitsFile(

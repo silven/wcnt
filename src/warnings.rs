@@ -1,3 +1,4 @@
+//! Module responsible for structures and functions related to what counts as a warning.
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::num::NonZeroUsize;
@@ -11,6 +12,8 @@ use crate::utils;
 use crate::utils::SearchableArena;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
+/// A Description is a nice-to-have textual component of a warning. This wrapper struct stores
+/// an [Id](../../id-arena/struct.Id.html) instead of a String in order to save space.
 pub(crate) struct Description(Option<Id<String>>);
 
 impl Description {
@@ -45,6 +48,9 @@ impl Description {
 }
 
 #[derive(PartialEq, Eq, Hash)]
+/// A warning is anything that counts towards a limit. We identity it with a path to a `culprit`,
+/// the [Kind](../settings/struct.Kind.html) causing us to look for the warning in the first place,
+/// and optionally line, column, [Category](../limits/struct.Category.html) and [Description](struct.Description.html)
 pub(crate) struct CountsTowardsLimit {
     culprit: PathBuf,
     line: Option<NonZeroUsize>,
@@ -121,6 +127,7 @@ impl CountsTowardsLimit {
     }
 }
 
+/// A Violation is a [Limit](../limits/struct.Limit.html) that has been breached.
 pub(crate) struct Violation<'entry> {
     entry: &'entry LimitsEntry,
     threshold: u64,

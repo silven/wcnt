@@ -1,3 +1,7 @@
+//! Module responsible for structures and functions related to the Wcnt.toml settings file.
+//! This settings file declares all [Kind](struct.Kind.html)s of warnings we are interested in.
+//! For every Kind, we need a regular expression matching the warning, and a list of glob patterns
+//! to know which log files we should search through. Optionally a default limit might be set.
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
@@ -9,24 +13,8 @@ use serde::{Deserialize, Deserializer};
 use crate::utils;
 use crate::utils::SearchableArena;
 
-#[derive(Debug)]
-struct MyRegex(Regex);
-
-impl<'de> Deserialize<'de> for MyRegex {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let as_str = <&str>::deserialize(deserializer)?;
-        let as_regex = RegexBuilder::new(as_str)
-            .multi_line(true)
-            .build()
-            .map_err(serde::de::Error::custom)?;
-        Ok(MyRegex(as_regex))
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
+/// A Kind is a kind of warnings, all matchable with the same regular expression.
 pub(crate) struct Kind(Id<String>);
 
 impl Kind {
@@ -40,6 +28,9 @@ impl Kind {
 }
 
 #[derive(Debug)]
+/// Structure representing the Wcnt.toml file. To save space, we use a
+/// [string arena](../utils/struct.SearchableArena.html) to store IDs instead of strings whenever
+/// possible.
 pub(crate) struct Settings {
     pub(crate) string_arena: SearchableArena,
     inner: HashMap<Kind, SettingsField>,
@@ -69,6 +60,8 @@ impl Settings {
 }
 
 #[derive(Debug)]
+/// Represents the settings required to find files, and search in those files for warnings, related
+/// to a specific [Kind](struct.Kind.html)
 pub(crate) struct SettingsField {
     pub(crate) regex: Regex,
     pub(crate) files: Vec<String>,
