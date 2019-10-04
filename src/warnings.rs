@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use id_arena::Id;
 
-use crate::limits::Category;
+use crate::limits::{Category, LimitsEntry};
 use crate::settings::Kind;
 use crate::utils;
 use crate::utils::SearchableArena;
@@ -118,5 +118,68 @@ impl CountsTowardsLimit {
             }
             Ok(())
         })
+    }
+}
+
+pub(crate) struct Violation<'entry> {
+    entry: &'entry LimitsEntry,
+    threshold: u64,
+    actual: u64,
+}
+
+impl<'entry> Violation<'entry> {
+    pub fn new(limits_entry: &'entry LimitsEntry, threshold: u64, num_warnings: u64) -> Self {
+        Violation {
+            entry: limits_entry,
+            threshold: threshold,
+            actual: num_warnings,
+        }
+    }
+
+    pub fn entry(&self) -> &LimitsEntry {
+        self.entry
+    }
+
+    pub fn display<'me, 'arena: 'me>(
+        &'me self,
+        arena: &'arena SearchableArena,
+    ) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            write!(
+                f,
+                "{} ({} > {})",
+                self.entry.display(&arena),
+                self.actual,
+                self.threshold
+            )
+        })
+    }
+}
+
+impl<'e> PartialOrd for Violation<'e> {
+    fn partial_cmp(&self, other: &Violation) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'e> PartialEq for Violation<'e> {
+    fn eq(&self, other: &Violation) -> bool {
+        self.entry.eq(&other.entry)
+            && self.threshold.eq(&other.threshold)
+            && self.actual.eq(&other.actual)
+    }
+}
+
+impl<'e> Eq for Violation<'e> {}
+
+impl<'e> Ord for Violation<'e> {
+    fn cmp(&self, other: &Violation) -> Ordering {
+        match self.entry.cmp(&other.entry) {
+            Ordering::Equal => match self.threshold.cmp(&other.threshold) {
+                Ordering::Equal => self.actual.cmp(&other.actual),
+                threshold_cmp => threshold_cmp,
+            },
+            entry_cmp => entry_cmp,
+        }
     }
 }

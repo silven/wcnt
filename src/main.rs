@@ -1,7 +1,5 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fmt::Display;
 use std::path::PathBuf;
 
 use clap::{App, Arg};
@@ -17,7 +15,7 @@ use crate::search_for_files::{FileData, LogFile};
 use crate::search_in_files::LogSearchResult;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
-use crate::warnings::CountsTowardsLimit;
+use crate::warnings::{CountsTowardsLimit, Violation};
 
 mod limits;
 mod search_for_files;
@@ -161,7 +159,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 type LogAndLimitFiles = (Vec<LogFile>, HashMap<PathBuf, LimitsFile>);
 
-fn collect_file_results(arena: &mut SearchableArena, rx: Receiver<FileData>) -> Result<LogAndLimitFiles, Box<dyn Error>>{
+fn collect_file_results(
+    arena: &mut SearchableArena,
+    rx: Receiver<FileData>,
+) -> Result<LogAndLimitFiles, Box<dyn Error>> {
     let mut log_files = Vec::with_capacity(256);
     let mut limits: HashMap<PathBuf, LimitsFile> = HashMap::new();
     for file_data in rx {
@@ -188,7 +189,7 @@ fn report_violations(
         for v in violations {
             println!("{}", v.display(&arena));
             if args.is_very_verbose() {
-                let warnings = results.get(v.entry).expect("Got the key from here..");
+                let warnings = results.get(v.entry()).expect("Got the key from here..");
                 let mut warnings_vec: Vec<&CountsTowardsLimit> = Vec::with_capacity(warnings.len());
                 warnings_vec.extend(warnings.iter());
                 warnings_vec.sort();
@@ -250,57 +251,6 @@ fn process_search_results(
     results
 }
 
-struct Violation<'entry> {
-    entry: &'entry LimitsEntry,
-    threshold: u64,
-    actual: u64,
-}
-
-impl<'entry> Violation<'entry> {
-    pub fn display<'me, 'arena: 'me>(
-        &'me self,
-        arena: &'arena SearchableArena,
-    ) -> impl Display + 'me {
-        utils::fmt_helper(move |f| {
-            write!(
-                f,
-                "{} ({} > {})",
-                self.entry.display(&arena),
-                self.actual,
-                self.threshold
-            )
-        })
-    }
-}
-
-impl<'e> PartialOrd for Violation<'e> {
-    fn partial_cmp(&self, other: &Violation) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<'e> PartialEq for Violation<'e> {
-    fn eq(&self, other: &Violation) -> bool {
-        self.entry.eq(&other.entry)
-            && self.threshold.eq(&other.threshold)
-            && self.actual.eq(&other.actual)
-    }
-}
-
-impl<'e> Eq for Violation<'e> {}
-
-impl<'e> Ord for Violation<'e> {
-    fn cmp(&self, other: &Violation) -> Ordering {
-        match self.entry.cmp(&other.entry) {
-            Ordering::Equal => match self.threshold.cmp(&other.threshold) {
-                Ordering::Equal => self.actual.cmp(&other.actual),
-                threshold_cmp => threshold_cmp,
-            },
-            entry_cmp => entry_cmp,
-        }
-    }
-}
-
 fn check_warnings_against_thresholds<'entries, 'x>(
     flat_limits: &'x HashMap<LimitsEntry, u64>,
     results: &'entries HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
@@ -317,11 +267,7 @@ fn check_warnings_against_thresholds<'entries, 'x>(
         };
 
         if num_warnings > threshold {
-            violations.push(Violation {
-                entry: &limits_entry,
-                threshold: threshold,
-                actual: num_warnings,
-            });
+            violations.push(Violation::new(limits_entry, threshold, num_warnings));
         }
     }
     violations

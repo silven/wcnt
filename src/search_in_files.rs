@@ -8,11 +8,11 @@ use log::{error, trace};
 use regex::Regex;
 
 use crate::limits::{Category, LimitsEntry, LimitsFile};
+use crate::search_for_files::LogFile;
 use crate::settings::{Kind, Settings};
 use crate::utils;
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
-use crate::search_for_files::LogFile;
 
 pub(crate) struct LogSearchResult {
     pub(crate) string_arena: SearchableArena,
