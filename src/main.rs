@@ -64,13 +64,13 @@ impl Arguments {
 }
 
 fn parse_args() -> Result<Arguments, std::io::Error> {
-    let matches = App::new("wcnt - Warning Counter")
+    let matches = App::new("Warning Counter (wcnt)")
         .version(clap::crate_version!())
         .author(clap::crate_authors!())
         .about(clap::crate_description!())
         .arg(
             Arg::with_name("start_dir")
-                .long("start-dir")
+                .long("start")
                 .value_name("DIR")
                 .help("Start search in this directory (instead of cwd)")
                 .takes_value(true),
@@ -79,14 +79,14 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
             Arg::with_name("config_file")
                 .long("config")
                 .value_name("Wcnt.toml")
-                .help("Use this config file. (Instead of start-dir/Wcnt.toml)")
+                .help("Use this config file. (Instead of <start>/Wcnt.toml)")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("verbose")
                 .short("v")
                 .multiple(true)
-                .help("Be more verbose"),
+                .help("Be more verbose. (Add more for more)"),
         )
         .get_matches();
 
@@ -143,8 +143,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Finally, check the results and report any violations
-    let mut violations = check_warnings_against_thresholds(&flat_limits, &results);
-    violations.sort();
+    let violations = {
+        let mut tmp = check_warnings_against_thresholds(&flat_limits, &results);
+        tmp.sort();
+        tmp
+    };
     if !violations.is_empty() {
         report_violations(args, &settings.string_arena, &results, &violations);
         eprintln!(
