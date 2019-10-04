@@ -46,7 +46,7 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
     if entry.path().ends_with("Limits.toml") {
         tx.send(FileData::LimitsFile(
             entry.path().canonicalize().expect("Could not make abs"),
-        ));
+        )).expect("Could not send FileData::LimitsFile.");
     } else {
         let mut file_ts = vec![];
         for (file_t, globs) in types {
@@ -59,7 +59,8 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
                 .path()
                 .canonicalize()
                 .expect("Could not make logfile into abs path");
-            tx.send(FileData::LogFile(abs_path, file_ts));
+            tx.send(FileData::LogFile(abs_path, file_ts))
+                .expect("Could not send FileData::LogFile");
         }
     }
 }

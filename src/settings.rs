@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::utils::SearchableArena;
 use std::borrow::Cow;
+use crate::utils;
 
 #[derive(Debug)]
 struct MyRegex(Regex);
@@ -25,8 +26,8 @@ impl<'de> Deserialize<'de> for MyRegex {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub(crate) struct Kind(pub(crate) Id<String>);
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
+pub(crate) struct Kind(Id<String>);
 
 impl Kind {
     pub fn new(id: Id<String>) -> Self {
@@ -53,19 +54,17 @@ impl Settings {
         self.inner.get(key)
     }
 
-    pub fn display(&self) -> impl Display {
-        use std::fmt::Write;
-
-        let mut buff = String::new();
-        writeln!(buff, "Settings {{");
-        for (kind, field) in &self.inner {
-            writeln!(buff, "[{}]", kind.to_str(&self.string_arena));
-            writeln!(buff, "regex = {:?}", field.regex);
-            writeln!(buff, "files = [{}]", field.files.join(", "));
-            writeln!(buff, "default = {}", field.default.unwrap_or(0));
-        }
-        write!(buff, "}}");
-        buff
+    pub fn display<'me>(&'me self) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            writeln!(f, "Settings {{")?;
+            for (kind, field) in &self.inner {
+                writeln!(f, "[{}]", kind.to_str(&self.string_arena))?;
+                writeln!(f, "regex = {:?}", field.regex)?;
+                writeln!(f, "files = [{}]", field.files.join(", "))?;
+                writeln!(f, "default = {}", field.default.unwrap_or(0))?;
+            }
+            write!(f, "}}")
+        })
     }
 }
 

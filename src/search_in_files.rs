@@ -127,18 +127,17 @@ fn find_limits_for<'a, 'b>(
     let mut maybe_parent = culprit_file.parent();
     while let Some(parent_dir) = maybe_parent {
         // This happens when parent of . turns into empty string.
-        // I want `while let Some(d) && d.parent.is_some() = culprit_file.parent()`
+        // I want `while let Some(d) && d.parent().is_some() = culprit_file.parent()`
         if parent_dir.parent().is_none() {
             break;
         }
-
         // TODO: This should be able to be done more efficiently
         for found_limit_file in limits.keys() {
-            let limit_file_folder = found_limit_file.parent().unwrap();
-            //println!("Checking {} against {}", limit_file_folder.display(), parent_dir.display());
+            let limit_file_folder = found_limit_file.parent()
+                .unwrap_or_else(|| panic!("Limits file `{}` has no parent!", found_limit_file.display()));
             if limit_file_folder.ends_with(parent_dir) {
                 trace!(
-                    "Culprit {} should count towards limits defined in {}",
+                    "Culprit `{}` should count towards limits defined in `{}`",
                     culprit_file.display(),
                     found_limit_file.display()
                 );

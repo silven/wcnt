@@ -7,7 +7,7 @@ use clap::{App, Arg};
 use crossbeam_channel::Receiver;
 use env_logger;
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use log::{debug, error, info, trace, warn};
+use log::{debug, trace, warn};
 use serde::export::fmt::Debug;
 use toml;
 
@@ -17,6 +17,7 @@ use crate::search_in_files::LogSearchResult;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::CountsTowardsLimit;
+use std::cmp::Ordering;
 
 mod limits;
 mod search_for_files;
@@ -51,7 +52,17 @@ fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntr
 struct Arguments {
     start_dir: PathBuf,
     config_file: PathBuf,
-    verbose: bool,
+    verbosity: u64,
+}
+
+impl Arguments {
+    fn is_verbose(&self) -> bool {
+        self.verbosity > 0
+    }
+
+    fn is_very_verbose(&self) -> bool {
+        self.verbosity > 1
+    }
 }
 
 fn parse_args() -> Result<Arguments, std::io::Error> {
@@ -73,7 +84,10 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .help("Use this config file. (Instead of start-dir/Wcnt.toml)")
                 .takes_value(true),
         )
-        .arg(Arg::with_name("verbose").short("v").help("Be more verbose"))
+        .arg(Arg::with_name("verbose")
+            .short("v")
+            .multiple(true)
+            .help("Be more verbose"))
         .get_matches();
 
     let cwd = std::env::current_dir()?;
@@ -87,12 +101,12 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         .map(PathBuf::from)
         .unwrap_or_else(|| start_dir.join("Wcnt.toml").to_path_buf());
 
-    let be_verbose = matches.is_present("verbose");
+    let verbosity = matches.occurrences_of("verbose");
 
     Ok(Arguments {
         start_dir: start_dir,
         config_file: config_file,
-        verbose: be_verbose,
+        verbosity: verbosity,
     })
 }
 
@@ -143,12 +157,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Finally, check the results
-    let violations = check_warnings_against_thresholds(&flat_limits, &results);
+    let mut violations = check_warnings_against_thresholds(&flat_limits, &results);
+    violations.sort();
     if !violations.is_empty() {
-        if args.verbose {
+        if args.is_verbose() {
             for v in &violations {
                 println!("{}", v.display(&settings.string_arena));
-                if args.verbose {
+                if args.is_very_verbose() {
                     let warnings = results.get(v.entry).expect("Got the key from here..");
                     let mut warnings_vec: Vec<&CountsTowardsLimit> = Vec::with_capacity(warnings.len());
                     warnings_vec.extend(warnings.iter());
@@ -223,18 +238,40 @@ struct Violation<'entry> {
 }
 
 impl<'entry> Violation<'entry> {
-    fn update_threshold(mut self, threshold: u64) -> Self {
-        self.threshold = threshold;
-        self
+    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            write!(f,
+                "{} ({} > {})",
+                self.entry.display(&arena),
+                self.actual,
+                self.threshold)
+        })
     }
+}
 
-    fn display(&self, arena: &SearchableArena) -> impl Display {
-        format!(
-            "{} ({} > {})",
-            self.entry.display(&arena),
-            self.actual,
-            self.threshold
-        )
+impl<'e> PartialOrd for Violation<'e> {
+    fn partial_cmp(&self, other: &Violation) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'e> PartialEq for Violation<'e> {
+    fn eq(&self, other: &Violation) -> bool {
+        self.entry.eq(&other.entry) && self.threshold.eq(&other.threshold) && self.actual.eq(&other.actual)
+    }
+}
+
+impl<'e> Eq for Violation<'e> {}
+
+impl<'e> Ord for Violation<'e> {
+    fn cmp(&self, other: &Violation) -> Ordering {
+        match self.entry.cmp(&other.entry) {
+            Ordering::Equal => match self.threshold.cmp(&other.threshold) {
+                Ordering::Equal => self.actual.cmp(&other.actual),
+                threshold_cmp => threshold_cmp,
+            },
+            entry_cmp => entry_cmp,
+        }
     }
 }
 
@@ -342,7 +379,7 @@ mod test {
             }
         };
 
-        let result = process_search_results(&mut arena_1, search_result);
+        let _result = process_search_results(&mut arena_1, search_result);
         assert!(arena_1.get_id("kind").is_some());
         assert!(arena_1.get_id("category").is_some());
     }

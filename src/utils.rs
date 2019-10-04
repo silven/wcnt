@@ -1,7 +1,25 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::path::Path;
 
 use id_arena::{Arena, Id};
+use serde::export::PhantomData;
+
+struct FmtHelper<'obj, F> where F: Fn(&mut std::fmt::Formatter<'_>) -> std::fmt::Result + 'obj {
+    inner: F,
+    _phantom: PhantomData<&'obj usize>,
+}
+
+impl<'obj, F> Display for FmtHelper<'obj, F> where F: Fn(&mut std::fmt::Formatter<'_>) -> std::fmt::Result + 'obj {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        (self.inner)(f)
+    }
+}
+
+pub fn fmt_helper<'obj>(fmt_fn: impl Fn(&mut std::fmt::Formatter<'_>) -> std::fmt::Result + 'obj) -> impl Display + 'obj {
+    FmtHelper { inner: fmt_fn, _phantom: PhantomData }
+}
+
 
 #[derive(Debug)]
 pub(crate) struct SearchableArena {

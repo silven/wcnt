@@ -11,7 +11,7 @@ use crate::settings::Kind;
 use crate::utils;
 use crate::utils::SearchableArena;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 pub(crate) struct Category(Option<Id<String>>);
 
 impl Category {
@@ -49,31 +49,30 @@ impl LimitsFile {
         self.inner.iter()
     }
 
+    #[cfg(test)]
     pub fn get_limit(&self, kind: &Kind) -> Option<&Limit> {
         self.inner.get(kind)
     }
 
-    pub fn display(&self, arena: &SearchableArena) -> impl Display {
-        use std::fmt::Write;
-
-        let mut buff = String::new();
-        writeln!(buff, "LimitsFile {{");
-        for (kind, limit) in &self.inner {
-            let kind_str = kind.to_str(&arena);
-            match limit {
-                Limit::Number(x) => {
-                    writeln!(buff, "{} = {}", kind_str, x);
-                }
-                Limit::PerCategory(dict) => {
-                    writeln!(buff, "[{}]", kind_str);
-                    for (cat, x) in dict {
-                        writeln!(buff, "{} = {}", cat.to_str(&arena), x);
+    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            writeln!(f, "LimitsFile {{")?;
+            for (kind, limit) in &self.inner {
+                let kind_str = kind.to_str(&arena);
+                match limit {
+                    Limit::Number(x) => {
+                        writeln!(f, "{} = {}", kind_str, x)?;
+                    }
+                    Limit::PerCategory(dict) => {
+                        writeln!(f, "[{}]", kind_str)?;
+                        for (cat, x) in dict {
+                            writeln!(f, "{} = {}", cat.to_str(&arena), x)?;
+                        }
                     }
                 }
             }
-        }
-        write!(buff, "}}");
-        buff
+            write!(f, "}}")
+        })
     }
 }
 
@@ -83,7 +82,7 @@ pub(crate) enum Limit {
     PerCategory(HashMap<Category, u64>),
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub(crate) struct LimitsEntry {
     pub(crate) limits_file: Option<PathBuf>,
     pub(crate) kind: Kind,
@@ -107,36 +106,34 @@ impl LimitsEntry {
         }
     }
 
-    pub(crate) fn display(&self, arena: &SearchableArena) -> impl Display {
-        use std::fmt::Write;
-
-        let mut buff = String::new();
-        match self.limits_file {
-            Some(ref pb) => {
-                let tmp: PathBuf; // Sometimes I think things are a little silly
-                let path = if pb.components().count() > 5 {
-                    // Silly way to take the last 4 components of the path
-                    tmp = PathBuf::from("...").join(
-                        pb.components()
-                            .rev()
-                            .take(4)
-                            .collect::<PathBuf>()
-                            .components()
-                            .rev()
-                            .collect::<PathBuf>(),
-                    );
-                    &tmp
-                } else {
-                    pb
-                };
-                write!(buff, "{}", path.display());
-            }
-            None => {
-                write!(buff, "_");
-            }
-        };
-        write!(buff, ":[{}/{}]", self.kind.to_str(&arena), self.category.to_str(&arena));
-        buff
+    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            match self.limits_file {
+                Some(ref pb) => {
+                    let tmp: PathBuf; // Sometimes I think things are a little silly
+                    let path = if pb.components().count() > 5 {
+                        // Silly way to take the last 4 components of the path
+                        tmp = PathBuf::from("...").join(
+                            pb.components()
+                                .rev()
+                                .take(4)
+                                .collect::<PathBuf>()
+                                .components()
+                                .rev()
+                                .collect::<PathBuf>(),
+                        );
+                        &tmp
+                    } else {
+                        pb
+                    };
+                    write!(f, "{}", path.display())?;
+                }
+                None => {
+                    write!(f, "_")?;
+                }
+            };
+            write!(f, ":[{}/{}]", self.kind.to_str(&arena), self.category.to_str(&arena))
+        })
     }
 }
 
@@ -220,7 +217,7 @@ mod test {
         "#;
 
         let mut arena = SearchableArena::new();
-        let gcc_kind = Kind(arena.insert("gcc".to_owned()));
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
 
         assert_eq!(limits.get_limit(&gcc_kind), Some(&Limit::Number(1)));
@@ -235,7 +232,7 @@ mod test {
         "#;
 
         let mut arena = SearchableArena::new();
-        let gcc_kind = Kind(arena.insert("gcc".to_owned()));
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-wbad-code").expect("bad code"));

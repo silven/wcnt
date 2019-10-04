@@ -8,6 +8,7 @@ use crate::limits::Category;
 use crate::settings::Kind;
 use crate::utils::SearchableArena;
 use std::fmt::Display;
+use crate::utils;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct Description(Option<Id<String>>);
@@ -92,26 +93,25 @@ impl CountsTowardsLimit {
         self
     }
 
-    pub fn display(&self, arena: &SearchableArena) -> impl Display {
-        use std::fmt::Write;
+    pub fn display<'me, 'arena: 'me>(&'me self, arena: &'arena SearchableArena) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
+                val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
+            }
+            write!(
+                f,
+                "{}:{}:{} ({}/{})",
+                self.culprit.display(),
+                fmt_nonzero(self.line),
+                fmt_nonzero(self.column),
+                self.kind.to_str(&arena),
+                self.category.to_str(&arena),
+            )?;
 
-        let mut buff = String::new();
-        fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
-            val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
-        }
-        write!(
-            buff,
-            "{}:{}:{} ({}/{})",
-            self.culprit.display(),
-            fmt_nonzero(self.line),
-            fmt_nonzero(self.column),
-            self.kind.to_str(&arena),
-            self.category.to_str(&arena),
-        );
-
-        if let Some(desc_str) = self.description.to_str(&arena) {
-            write!(buff, ": {}", desc_str);
-        }
-        buff
+            if let Some(desc_str) = self.description.to_str(&arena) {
+                write!(f, ": {}", desc_str)?;
+            }
+            Ok(())
+        })
     }
 }
