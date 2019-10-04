@@ -32,6 +32,7 @@ pub(crate) fn search_files<'logs>(
             scope.spawn(move |scope| {
                 match utils::read_file(lf.path()) {
                     Ok(loaded_file) => {
+                        // Move the file into an Arc so we can share it across threads
                         let file_handle = Arc::new(loaded_file);
                         // Most log files will only ever be parsed once,
                         // but some build system might do the equivalent of "make all" > big_log.txt,
@@ -50,13 +51,13 @@ pub(crate) fn search_files<'logs>(
                                     &file_contents_handle,
                                     regex,
                                 );
-                                tx.send(Ok(result)).expect("Could not send()");
+                                tx.send(Ok(result)).expect("Could not send() logfile result");
                             });
                         }
                     }
                     Err(e) => {
                         error!("Could not read log file: {}, {}", lf.path().display(), e);
-                        tx.send(Err((lf, e))).expect("Could not send()");
+                        tx.send(Err((lf, e))).expect("Could not send() logfile io error");
                     }
                 }
             });
@@ -86,9 +87,10 @@ fn build_regex_searcher(
             .map(|m| PathBuf::from(m.as_str()))
             .unwrap();
         // Try to identify the warning using line, column, category and description
-        let line: Option<NonZeroUsize> = matching.name("line").map(|m| m.as_str().parse().unwrap());
-        let column: Option<NonZeroUsize> =
-            matching.name("column").map(|m| m.as_str().parse().unwrap());
+        let line: Option<NonZeroUsize> = matching.name("line").map(|m|
+           m.as_str().parse().unwrap_or_else(|e| panic!("Capture for `line` was not a non zero number: `{}`", e)));
+        let column: Option<NonZeroUsize> = matching.name("column").map(|m|
+            m.as_str().parse().unwrap_or_else(|e| panic!("Capture for `column` was not a non zero number: `{}`", e)));
         let cat_match = matching.name("category").map(|m| m.as_str());
         let desc_match = matching.name("description").map(|m| m.as_str());
 

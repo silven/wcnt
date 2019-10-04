@@ -34,6 +34,7 @@ pub fn fmt_helper<'obj>(
 #[derive(Debug)]
 pub(crate) struct SearchableArena {
     arena: Arena<String>,
+    // I'd like to store a &str here, but that would create a self-referential type
     mapping: HashMap<String, Id<String>>,
 }
 
