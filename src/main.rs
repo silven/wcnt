@@ -13,7 +13,7 @@ use serde::export::fmt::Debug;
 use toml;
 
 use crate::limits::{Category, Limit, LimitsEntry, LimitsFile};
-use crate::search_for_files::FileData;
+use crate::search_for_files::{FileData, LogFile};
 use crate::search_in_files::LogSearchResult;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
@@ -125,72 +125,84 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let globset = construct_types_info(&settings)?;
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
-
-    let mut log_files = Vec::with_capacity(256);
-    let mut limits: HashMap<PathBuf, LimitsFile> = HashMap::new();
-
-    for file_data in rx {
-        match file_data {
-            FileData::LogFile(log_file, kinds) => {
-                log_files.push((log_file, kinds));
-            }
-            FileData::LimitsFile(path) => {
-                let limit = limits::parse_limits_file(&mut settings.string_arena, &path)?;
-                limits.insert(path, limit);
-            }
-        }
-    }
+    let (log_files, limits) = collect_file_results(&mut settings.string_arena, rx)?;
 
     for (path, limits_file) in &limits {
         debug!("Found Limits.toml file at `{}`", path.display());
         trace!("{}", limits_file.display(&settings.string_arena));
     }
 
-    let rx = search_in_files::search_files(&settings, log_files, &limits);
-    let results = compute_results(&mut settings.string_arena, rx);
+    let rx = search_in_files::search_files(&settings, &log_files, &limits);
+    let results = gather_results_from_logs(&mut settings.string_arena, rx);
 
     // Flatten the limit entries to make it easier to match
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
     let mut flat_limits = flatten_limits(&limits);
     for (kind, field) in settings.iter() {
-        // Fill in
+        // Fill in the defaults from the kind settings
         let entry_for_kind_default = LimitsEntry::new(None, kind.clone(), Category::none());
         flat_limits.insert(entry_for_kind_default, field.default.unwrap_or(0));
     }
 
-    // Finally, check the results
+    // Finally, check the results and report any violations
     let mut violations = check_warnings_against_thresholds(&flat_limits, &results);
     violations.sort();
     if !violations.is_empty() {
-        if args.is_verbose() {
-            for v in &violations {
-                println!("{}", v.display(&settings.string_arena));
-                if args.is_very_verbose() {
-                    let warnings = results.get(v.entry).expect("Got the key from here..");
-                    let mut warnings_vec: Vec<&CountsTowardsLimit> =
-                        Vec::with_capacity(warnings.len());
-                    warnings_vec.extend(warnings.iter());
-                    warnings_vec.sort();
-                    for w in &warnings_vec {
-                        println!("  => {}", w.display(&settings.string_arena));
-                    }
-                }
-            }
-        }
-        Err(format!(
+        report_violations(args, &settings.string_arena, &results, &violations);
+        eprintln!(
             "Found {} violations against specified limits.",
             violations.len()
-        )
-        .into())
+        );
+        std::process::exit(1);
     } else {
-        println!("Done.");
         Ok(())
     }
 }
 
-fn compute_results(
+type LogAndLimitFiles = (Vec<LogFile>, HashMap<PathBuf, LimitsFile>);
+
+fn collect_file_results(arena: &mut SearchableArena, rx: Receiver<FileData>) -> Result<LogAndLimitFiles, Box<dyn Error>>{
+    let mut log_files = Vec::with_capacity(256);
+    let mut limits: HashMap<PathBuf, LimitsFile> = HashMap::new();
+    for file_data in rx {
+        match file_data {
+            FileData::LogFile(log_file) => {
+                log_files.push(log_file);
+            }
+            FileData::LimitsFile(path) => {
+                let limit = limits::parse_limits_file(arena, &path)?;
+                limits.insert(path, limit);
+            }
+        }
+    }
+    Ok((log_files, limits))
+}
+
+fn report_violations(
+    args: Arguments,
+    arena: &SearchableArena,
+    results: &HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
+    violations: &Vec<Violation>,
+) {
+    if args.is_verbose() {
+        for v in violations {
+            println!("{}", v.display(&arena));
+            if args.is_very_verbose() {
+                let warnings = results.get(v.entry).expect("Got the key from here..");
+                let mut warnings_vec: Vec<&CountsTowardsLimit> = Vec::with_capacity(warnings.len());
+                warnings_vec.extend(warnings.iter());
+                warnings_vec.sort();
+                for w in &warnings_vec {
+                    println!("  => {}", w.display(&arena));
+                }
+            }
+        }
+    }
+}
+
+fn gather_results_from_logs(
     arena: &mut SearchableArena,
-    rx: Receiver<Result<LogSearchResult, (PathBuf, std::io::Error)>>,
+    rx: Receiver<Result<LogSearchResult, (&LogFile, std::io::Error)>>,
 ) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
     let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
     for search_result_result in rx {
@@ -199,7 +211,7 @@ fn compute_results(
             Err((log_file, err)) => {
                 warn!(
                     "Could not open log file `{}`. Reason: `{}`",
-                    log_file.display(),
+                    log_file.path().display(),
                     err
                 );
                 // TODO: This should be a cause to abort

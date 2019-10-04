@@ -9,9 +9,22 @@ use ignore::{DirEntry, Error, WalkBuilder};
 use crate::settings::Kind;
 
 #[derive(Debug)]
+pub struct LogFile(PathBuf, Vec<Kind>);
+
+impl LogFile {
+    pub(crate) fn path(&self) -> &Path {
+        &self.0.as_path()
+    }
+
+    pub(crate) fn kinds(&self) -> &[Kind] {
+        &self.1
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum FileData {
     LimitsFile(PathBuf),
-    LogFile(PathBuf, Vec<Kind>),
+    LogFile(LogFile),
 }
 
 pub(crate) fn construct_file_searcher(
@@ -49,9 +62,9 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
         ))
         .expect("Could not send FileData::LimitsFile.");
     } else {
-        let file_ts: Vec<Kind> = types.iter()
-            .filter(|(_ft, globs)|
-                globs.is_match(entry.path()))
+        let file_ts: Vec<Kind> = types
+            .iter()
+            .filter(|(_ft, globs)| globs.is_match(entry.path()))
             .map(|(ft, _glob)| ft.clone())
             .collect();
 
@@ -60,7 +73,7 @@ fn process_file(tx: &Sender<FileData>, entry: DirEntry, types: &HashMap<Kind, Gl
                 .path()
                 .canonicalize()
                 .expect("Could not make logfile into abs path");
-            tx.send(FileData::LogFile(abs_path, file_ts))
+            tx.send(FileData::LogFile(LogFile(abs_path, file_ts)))
                 .expect("Could not send FileData::LogFile");
         }
     }

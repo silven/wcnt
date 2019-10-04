@@ -12,30 +12,31 @@ use crate::settings::{Kind, Settings};
 use crate::utils;
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
+use crate::search_for_files::LogFile;
 
 pub(crate) struct LogSearchResult {
     pub(crate) string_arena: SearchableArena,
     pub(crate) warnings: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
 }
 
-pub(crate) fn search_files(
+pub(crate) fn search_files<'logs>(
     settings: &Settings,
-    log_files: Vec<(PathBuf, Vec<Kind>)>,
+    log_files: &'logs [LogFile],
     limits: &HashMap<PathBuf, LimitsFile>,
-) -> Receiver<Result<LogSearchResult, (PathBuf, std::io::Error)>> {
+) -> Receiver<Result<LogSearchResult, (&'logs LogFile, std::io::Error)>> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
     crossbeam::scope(|scope| {
-        for (log_file, kinds) in log_files {
+        for lf in log_files {
             let tx = tx.clone();
             scope.spawn(move |scope| {
-                match utils::read_file(&log_file) {
+                match utils::read_file(lf.path()) {
                     Ok(loaded_file) => {
                         let file_handle = Arc::new(loaded_file);
                         // Most log files will only ever be parsed once,
                         // but some build system might do the equivalent of "make all" > big_log.txt,
                         // or it might be the console log from Jenkins
-                        for kind in kinds {
+                        for kind in lf.kinds() {
                             let file_contents_handle = file_handle.clone();
                             // TODO; Can be pre-construct these before we read the files?
                             // Since we need to clone the regex for every invocation, I think not.
@@ -54,8 +55,8 @@ pub(crate) fn search_files(
                         }
                     }
                     Err(e) => {
-                        error!("Could not read log file: {}, {}", log_file.display(), e);
-                        tx.send(Err((log_file, e))).expect("Could not send()");
+                        error!("Could not read log file: {}, {}", lf.path().display(), e);
+                        tx.send(Err((lf, e))).expect("Could not send()");
                     }
                 }
             });
@@ -67,7 +68,7 @@ pub(crate) fn search_files(
 
 fn build_regex_searcher(
     limits: &HashMap<PathBuf, LimitsFile>,
-    kind: Kind,
+    kind: &Kind,
     file_contents_handle: &Arc<String>,
     regex: Regex,
 ) -> LogSearchResult {
