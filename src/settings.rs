@@ -32,6 +32,10 @@ impl Kind {
     pub fn new(id: Id<String>) -> Self {
         Kind(id)
     }
+
+    pub fn to_str<'arena>(&self, arena: &'arena SearchableArena) -> &'arena str {
+        arena.lookup(self.0).unwrap()
+    }
 }
 
 #[derive(Debug)]
@@ -55,7 +59,7 @@ impl Settings {
         let mut buff = String::new();
         writeln!(buff, "Settings {{");
         for (kind, field) in &self.inner {
-            writeln!(buff, "[{}]", self.string_arena.lookup(kind.0).unwrap());
+            writeln!(buff, "[{}]", kind.to_str(&self.string_arena));
             writeln!(buff, "regex = {:?}", field.regex);
             writeln!(buff, "files = [{}]", field.files.join(", "));
             writeln!(buff, "default = {}", field.default.unwrap_or(0));

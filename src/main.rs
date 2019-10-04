@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -33,20 +34,21 @@ struct CountsTowardsLimit {
     category: Category,
 }
 
-impl Debug for CountsTowardsLimit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
-            val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
+impl PartialOrd for CountsTowardsLimit {
+    fn partial_cmp(&self, other: &CountsTowardsLimit) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CountsTowardsLimit {
+    fn cmp(&self, other: &CountsTowardsLimit) -> Ordering {
+        match self.culprit.cmp(&other.culprit) {
+            Ordering::Equal => match self.line.cmp(&other.line) {
+                Ordering::Equal => self.column.cmp(&other.column),
+                line_cmp => line_cmp,
+            },
+            path_cmp => path_cmp,
         }
-        write!(
-            f,
-            "{}:{}:{}:[{:?}/{:?}]",
-            self.culprit.display(),
-            fmt_nonzero(self.line),
-            fmt_nonzero(self.column),
-            self.kind,
-            self.category
-        )
     }
 }
 
@@ -65,6 +67,25 @@ impl CountsTowardsLimit {
             kind: kind,
             category: category,
         }
+    }
+
+    fn display(&self, arena: &SearchableArena) -> impl Display {
+        use std::fmt::Write;
+
+        let mut buff = String::new();
+        fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
+            val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
+        }
+        write!(
+            buff,
+            "{}:{}:{}:[{}/{}]",
+            self.culprit.display(),
+            fmt_nonzero(self.line),
+            fmt_nonzero(self.column),
+            self.kind.to_str(&arena),
+            self.category.to_str(&arena),
+        );
+        buff
     }
 }
 
@@ -191,6 +212,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         if args.verbose {
             for v in &violations {
                 println!("{}", v.display(&settings.string_arena));
+                if args.verbose {
+                    let warnings = results.get(v.entry).expect("Got the key from here..");
+                    let mut warnings_vec: Vec<&CountsTowardsLimit> = Vec::with_capacity(warnings.len());
+                    warnings_vec.extend(warnings.iter());
+                    warnings_vec.sort();
+                    for w in &warnings_vec {
+                        println!("  => {}", w.display(&settings.string_arena));
+                    }
+                }
             }
         }
         Err(format!(
@@ -286,13 +316,7 @@ fn check_warnings_against_thresholds<'entries, 'x>(
             Some(x) => *x,
             None => match flat_limits.get(&limits_entry.without_category()) {
                 Some(x) => *x,
-                None => {
-                    info!(
-                        "Could not find an entry to compare `{:?}` against",
-                        warnings
-                    );
-                    0
-                }
+                None => 0, // TODO: This means you have a warning for category you have not defined, also have no wildcard for
             },
         };
 

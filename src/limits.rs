@@ -31,6 +31,13 @@ impl Category {
             self.0 = to.get_id(cat_str);
         }
     }
+
+    pub fn to_str<'arena>(&self, arena: &'arena SearchableArena) -> &'arena str {
+        match self.0 {
+            Some(cat_id) => arena.lookup(cat_id).unwrap(),
+            None => "_",
+        }
+    }
 }
 
 pub(crate) struct LimitsFile {
@@ -52,7 +59,7 @@ impl LimitsFile {
         let mut buff = String::new();
         writeln!(buff, "LimitsFile {{");
         for (kind, limit) in &self.inner {
-            let kind_str = arena.lookup(kind.0).unwrap();
+            let kind_str = kind.to_str(&arena);
             match limit {
                 Limit::Number(x) => {
                     writeln!(buff, "{} = {}", kind_str, x);
@@ -60,15 +67,7 @@ impl LimitsFile {
                 Limit::PerCategory(dict) => {
                     writeln!(buff, "[{}]", kind_str);
                     for (cat, x) in dict {
-                        match cat.0 {
-                            Some(cat_id) => {
-                                let cat_str = arena.lookup(cat_id).unwrap();
-                                writeln!(buff, "{} = {}", cat_str, x);
-                            }
-                            None => {
-                                writeln!(buff, "_ = {}", x);
-                            }
-                        }
+                        writeln!(buff, "{} = {}", cat.to_str(&arena), x);
                     }
                 }
             }
@@ -136,12 +135,7 @@ impl LimitsEntry {
                 write!(buff, "_");
             }
         };
-        let kind_str = arena.lookup(self.kind.0).unwrap();
-        let cat_str = match self.category {
-            Category(Some(cat_id)) => arena.lookup(cat_id).unwrap(),
-            Category(None) => "_",
-        };
-        write!(buff, ":[{}/{}]", kind_str, cat_str);
+        write!(buff, ":[{}/{}]", self.kind.to_str(&arena), self.category.to_str(&arena));
         buff
     }
 }
