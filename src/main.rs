@@ -1,8 +1,6 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::num::NonZeroUsize;
+use std::fmt::Display;
 use std::path::PathBuf;
 
 use clap::{App, Arg};
@@ -18,76 +16,14 @@ use crate::search_for_files::FileData;
 use crate::search_in_files::LogSearchResult;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
+use crate::warnings::CountsTowardsLimit;
 
 mod limits;
 mod search_for_files;
 mod search_in_files;
 mod settings;
 mod utils;
-
-#[derive(PartialEq, Eq, Hash)]
-struct CountsTowardsLimit {
-    culprit: PathBuf,
-    line: Option<NonZeroUsize>,
-    column: Option<NonZeroUsize>,
-    kind: Kind,
-    category: Category,
-}
-
-impl PartialOrd for CountsTowardsLimit {
-    fn partial_cmp(&self, other: &CountsTowardsLimit) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for CountsTowardsLimit {
-    fn cmp(&self, other: &CountsTowardsLimit) -> Ordering {
-        match self.culprit.cmp(&other.culprit) {
-            Ordering::Equal => match self.line.cmp(&other.line) {
-                Ordering::Equal => self.column.cmp(&other.column),
-                line_cmp => line_cmp,
-            },
-            path_cmp => path_cmp,
-        }
-    }
-}
-
-impl CountsTowardsLimit {
-    fn new(
-        culprit_file: PathBuf,
-        line: Option<NonZeroUsize>,
-        column: Option<NonZeroUsize>,
-        kind: Kind,
-        category: Category,
-    ) -> Self {
-        CountsTowardsLimit {
-            culprit: culprit_file,
-            line: line,
-            column: column,
-            kind: kind,
-            category: category,
-        }
-    }
-
-    fn display(&self, arena: &SearchableArena) -> impl Display {
-        use std::fmt::Write;
-
-        let mut buff = String::new();
-        fn fmt_nonzero(val: Option<NonZeroUsize>) -> String {
-            val.map(|x| x.to_string()).unwrap_or_else(|| "?".to_owned())
-        }
-        write!(
-            buff,
-            "{}:{}:{}:[{}/{}]",
-            self.culprit.display(),
-            fmt_nonzero(self.line),
-            fmt_nonzero(self.column),
-            self.kind.to_str(&arena),
-            self.category.to_str(&arena),
-        );
-        buff
-    }
-}
+mod warnings;
 
 fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntry, u64> {
     let mut result: HashMap<LimitsEntry, u64> = HashMap::new();
@@ -275,10 +211,7 @@ fn process_search_results(
         results
             .entry(limits_entry)
             .or_insert_with(HashSet::new)
-            .extend(warnings.into_iter().map(|mut w| {
-                w.category.remap_id(&incoming_arena, &arena);
-                w
-            }));
+            .extend(warnings.into_iter().map(|w| w.remap(&incoming_arena, &arena)));
     }
     results
 }
@@ -348,6 +281,8 @@ fn construct_types_info(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::warnings::Description;
+    use std::num::NonZeroUsize;
 
     #[test]
     fn types_info_conversion_works() {
@@ -393,6 +328,7 @@ mod test {
             Some(NonZeroUsize::new(1).unwrap()),
             kind,
             category,
+            Description::none(),
         );
 
         let search_result = {

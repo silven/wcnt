@@ -7,10 +7,11 @@ use crossbeam_channel::Receiver;
 use log::{error, trace};
 use regex::Regex;
 
+use crate::utils;
 use crate::limits::{Category, LimitsEntry, LimitsFile};
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
-use crate::{utils, CountsTowardsLimit};
+use crate::warnings::{CountsTowardsLimit, Description};
 
 pub(crate) struct LogSearchResult {
     pub(crate) string_arena: SearchableArena,
@@ -83,11 +84,12 @@ fn build_regex_searcher(
             .name("file")
             .map(|m| PathBuf::from(m.as_str()))
             .unwrap();
-        // Try to identify the warning using line, column and category
+        // Try to identify the warning using line, column, category and description
         let line: Option<NonZeroUsize> = matching.name("line").map(|m| m.as_str().parse().unwrap());
         let column: Option<NonZeroUsize> =
             matching.name("column").map(|m| m.as_str().parse().unwrap());
-        let cat_str = matching.name("category").map(|m| m.as_str());
+        let cat_match = matching.name("category").map(|m| m.as_str());
+        let desc_match = matching.name("description").map(|m| m.as_str());
 
         // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.rust sort
         let limits_file = if limits_cache.contains_key(&culprit_file) {
@@ -98,12 +100,16 @@ fn build_regex_searcher(
                 .or_insert_with(|| find_limits_for(&limits, culprit_file.as_path()))
         };
 
-        let category = match cat_str {
+        let category = match cat_match {
             Some(cat_str) => Category::new(result.string_arena.get_or_insert(cat_str)),
             None => Category::none(),
         };
+        let description = match desc_match {
+            Some(desc_str) => Description::new(result.string_arena.get_or_insert(desc_str)),
+            None => Description::none(),
+        };
         let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category.clone());
-        let warning = CountsTowardsLimit::new(culprit_file, line, column, kind.clone(), category);
+        let warning = CountsTowardsLimit::new(culprit_file, line, column, kind.clone(), category, description);
 
         result
             .warnings
