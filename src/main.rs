@@ -1,3 +1,4 @@
+#![deny(intra_doc_link_resolution_failure)]
 //! wcnt (Warning Counter) is a small command line tool to count warnings in files, and map them
 //! to declared limits. It may then return an error code if any limit is breached.
 //!
@@ -23,7 +24,7 @@ use crate::search_for_files::{FileData, LogFile};
 use crate::search_in_files::LogSearchResults;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
-use crate::warnings::{CountsTowardsLimit, Violation};
+use crate::warnings::{CountsTowardsLimit, EntryCount, FinalTally};
 
 mod limits;
 mod search_for_files;
@@ -148,21 +149,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Flatten the limit entries to make it easier to match
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
-    let mut flat_limits = flatten_limits(&limits);
-    for (kind, field) in settings.iter() {
-        // Fill in the defaults from the kind settings
-        let entry_for_kind_default = LimitsEntry::new(None, kind.clone(), Category::none());
-        flat_limits.insert(entry_for_kind_default, field.default.unwrap_or(0));
-    }
+    let flat_limits = flatten_limits(&limits);
+    let defaults: HashMap<&Kind, Option<u64>> = settings.iter()
+        .map(|(k, sf)| (k, sf.default))
+        .collect();
 
     // Finally, check the results and report any violations
-    let violations = {
-        let mut tmp = check_warnings_against_thresholds(&flat_limits, &results);
-        tmp.sort();
-        tmp
-    };
+    let tally = check_warnings_against_thresholds(&flat_limits, &results, &defaults);
+    let violations = tally.violations();
     if !violations.is_empty() {
-        report_violations(args, &settings.string_arena, &results, &violations);
+        report_violations(args, &settings.string_arena, &results, &violations, &tally.non_violations());
         eprintln!(
             "Found {} violations against specified limits.",
             violations.len()
@@ -195,14 +191,20 @@ fn collect_file_results(
     Ok((log_files, limits))
 }
 
-/// Print the found [Violation](struct.Violation.html)s based on the verbosity level found in
+/// Print the found [EntryCount](struct.EntryCount.html)s based on the verbosity level found in
 /// [Arguments](struct.Arguments.html)
 fn report_violations(
     args: Arguments,
     arena: &SearchableArena,
     results: &HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
-    violations: &[Violation],
+    violations: &[EntryCount],
+    non_violations: &[EntryCount],
 ) {
+    if args.is_very_verbose() {
+        for entry in non_violations {
+            println!("{}", entry.display(&arena));
+        }
+    }
     if args.is_verbose() {
         for v in violations {
             println!("{}", v.display(&arena));
@@ -276,27 +278,25 @@ fn process_search_results(
 
 /// Check the collected [warnings](struct.CountsTowardsLimit.html) and compare the amount of them
 /// against the declared [limits](struct.LimitsEntry.html), resulting in a
-/// [Violation](struct.Violation.html) if that limit is breached.
+/// [FinalTally](../warnings/struct.FinalTally.html).
 fn check_warnings_against_thresholds<'entries, 'x>(
     flat_limits: &'x HashMap<LimitsEntry, u64>,
     results: &'entries HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
-) -> Vec<Violation<'entries>> {
-    let mut violations = Vec::with_capacity(flat_limits.len());
+    defaults: &HashMap<&Kind, Option<u64>>,
+) -> FinalTally<'entries> {
+    let mut tally = FinalTally::new(results.len());
     for (limits_entry, warnings) in results {
         let num_warnings = warnings.len() as u64;
         let threshold = match flat_limits.get(&limits_entry) {
             Some(x) => *x,
             None => match flat_limits.get(&limits_entry.without_category()) {
                 Some(x) => *x,
-                None => 0, // TODO: This means you have a warning for category you have not defined, also have no wildcard for
+                None => defaults.get(&limits_entry.kind).expect("No kind?").unwrap_or(0),
             },
         };
-
-        if num_warnings > threshold {
-            violations.push(Violation::new(limits_entry, threshold, num_warnings));
-        }
+        tally.add(EntryCount::new(limits_entry, threshold, num_warnings));
     }
-    violations
+    tally
 }
 
 /// Gather the glob patterns from the [Settings](struct.Settings.html) and create a mapping from

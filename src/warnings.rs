@@ -62,7 +62,7 @@ pub(crate) struct CountsTowardsLimit {
 
 impl PartialOrd for CountsTowardsLimit {
     fn partial_cmp(&self, other: &CountsTowardsLimit) -> Option<Ordering> {
-        Some(self.cmp(other))
+        Some(self.cmp(&other))
     }
 }
 
@@ -127,18 +127,18 @@ impl CountsTowardsLimit {
     }
 }
 
-/// A Violation is a [Limit](../limits/struct.Limit.html) that has been breached.
-pub(crate) struct Violation<'entry> {
+/// A EntryCount is a pairing of a [Limit](../limits/struct.Limit.html) with an actual warning count.
+pub(crate) struct EntryCount<'entry> {
     entry: &'entry LimitsEntry,
-    threshold: u64,
+    limit: u64,
     actual: u64,
 }
 
-impl<'entry> Violation<'entry> {
+impl<'entry> EntryCount<'entry> {
     pub fn new(limits_entry: &'entry LimitsEntry, threshold: u64, num_warnings: u64) -> Self {
-        Violation {
+        EntryCount {
             entry: limits_entry,
-            threshold: threshold,
+            limit: threshold,
             actual: num_warnings,
         }
     }
@@ -154,39 +154,75 @@ impl<'entry> Violation<'entry> {
         utils::fmt_helper(move |f| {
             write!(
                 f,
-                "{} ({} > {})",
+                "{} ({} {} {})",
                 self.entry.display(&arena),
                 self.actual,
-                self.threshold
+                if self.actual > self.limit { ">" } else { "<=" },
+                self.limit
             )
         })
     }
 }
 
-impl<'e> PartialOrd for Violation<'e> {
-    fn partial_cmp(&self, other: &Violation) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl<'e> PartialOrd for EntryCount<'e> {
+    fn partial_cmp(&self, other: &EntryCount) -> Option<Ordering> {
+        Some(self.cmp(&other))
     }
 }
 
-impl<'e> PartialEq for Violation<'e> {
-    fn eq(&self, other: &Violation) -> bool {
+impl<'e> PartialEq for EntryCount<'e> {
+    fn eq(&self, other: &EntryCount) -> bool {
         self.entry.eq(&other.entry)
-            && self.threshold.eq(&other.threshold)
+            && self.limit.eq(&other.limit)
             && self.actual.eq(&other.actual)
     }
 }
 
-impl<'e> Eq for Violation<'e> {}
+impl<'e> Eq for EntryCount<'e> {}
 
-impl<'e> Ord for Violation<'e> {
-    fn cmp(&self, other: &Violation) -> Ordering {
+impl<'e> Ord for EntryCount<'e> {
+    fn cmp(&self, other: &EntryCount) -> Ordering {
         match self.entry.cmp(&other.entry) {
-            Ordering::Equal => match self.threshold.cmp(&other.threshold) {
+            Ordering::Equal => match self.limit.cmp(&other.limit) {
                 Ordering::Equal => self.actual.cmp(&other.actual),
                 threshold_cmp => threshold_cmp,
             },
             entry_cmp => entry_cmp,
         }
+    }
+}
+
+
+/// A FinalTally is the combined counts, for every [LimitEntry](../limits/struct.LimitEntry.html), the limit
+/// and the actual warning count.
+pub(crate) struct FinalTally<'a> {
+    violations: Vec<EntryCount<'a>>,
+    others: Vec<EntryCount<'a>>,
+}
+
+impl<'a> FinalTally<'a> {
+    pub(crate) fn new(capacity: usize) -> Self {
+        FinalTally {
+            violations: Vec::with_capacity(capacity),
+            others: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub(crate) fn add(&mut self, entry: EntryCount<'a>) {
+        if entry.actual > entry.limit {
+            self.violations.push(entry);
+            self.violations.sort();
+        } else {
+            self.others.push(entry);
+            self.others.sort();
+        }
+    }
+
+    pub(crate) fn violations(&self) -> &[EntryCount<'_>] {
+        &self.violations
+    }
+
+    pub(crate) fn non_violations(&self) -> &[EntryCount<'_>] {
+        &self.others
     }
 }
