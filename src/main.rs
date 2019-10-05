@@ -35,8 +35,8 @@ mod warnings;
 
 /// Flattens the mapping of [LimitsFile](struct.LimitsFile.html)s to a more efficient representation
 /// using [Limit Entries](struct.LimitsEntry.html).
-fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntry, u64> {
-    let mut result: HashMap<LimitsEntry, u64> = HashMap::new();
+fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntry, Option<u64>> {
+    let mut result: HashMap<LimitsEntry, Option<u64>> = HashMap::new();
     for (path, data) in raw_form {
         for (kind, entry) in data.iter() {
             match entry {
@@ -280,7 +280,7 @@ fn process_search_results(
 /// against the declared [limits](struct.LimitsEntry.html), resulting in a
 /// [FinalTally](../warnings/struct.FinalTally.html).
 fn check_warnings_against_thresholds<'entries, 'x>(
-    flat_limits: &'x HashMap<LimitsEntry, u64>,
+    flat_limits: &'x HashMap<LimitsEntry, Option<u64>>,
     results: &'entries HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
     defaults: &HashMap<&Kind, Option<u64>>,
 ) -> FinalTally<'entries> {
@@ -291,7 +291,8 @@ fn check_warnings_against_thresholds<'entries, 'x>(
             Some(x) => *x,
             None => match flat_limits.get(&limits_entry.without_category()) {
                 Some(x) => *x,
-                None => defaults.get(&limits_entry.kind).expect("No kind?").unwrap_or(0),
+                // Important to note that if defaults[kind] is None, that means zero, not inf.
+                None => defaults.get(&limits_entry.kind).expect("No kind?").or(Some(0)),
             },
         };
         tally.add(EntryCount::new(limits_entry, threshold, num_warnings));

@@ -1,5 +1,3 @@
 [gcc]
--Wbad-code = 2
+-Wbad-code = inf
 _ = 2
-
-

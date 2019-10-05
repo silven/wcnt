@@ -43,6 +43,14 @@ impl Category {
             None => "_",
         }
     }
+
+    fn from_str(as_str: &str, arena: &mut SearchableArena) -> Self {
+        if as_str == "_" {
+            Category::none()
+        } else {
+            Category::new(arena.get_or_insert(as_str))
+        }
+    }
 }
 
 /// A LimitsFile declares a [Limit](struct.Limit.html) for a [Kind](../settings/struct.Kind.html) as a threshold
@@ -68,18 +76,7 @@ impl LimitsFile {
         utils::fmt_helper(move |f| {
             writeln!(f, "LimitsFile {{")?;
             for (kind, limit) in &self.inner {
-                let kind_str = kind.to_str(&arena);
-                match limit {
-                    Limit::Number(x) => {
-                        writeln!(f, "{} = {}", kind_str, x)?;
-                    }
-                    Limit::PerCategory(dict) => {
-                        writeln!(f, "[{}]", kind_str)?;
-                        for (cat, x) in dict {
-                            writeln!(f, "{} = {}", cat.to_str(&arena), x)?;
-                        }
-                    }
-                }
+                write!(f, "{}", limit.display(kind, arena))?;
             }
             write!(f, "}}")
         })
@@ -89,12 +86,44 @@ impl LimitsFile {
 #[derive(Debug, PartialEq)]
 /// A Limit can either be a single number, which should hold for any [Category](struct.Category.html)
 /// of warnings for that [Kind](../settings/struct.Kind.html), or be declared per category.
+/// A limit may also be "infinity", represented by None.
 pub(crate) enum Limit {
-    Number(u64),
-    PerCategory(HashMap<Category, u64>),
+    Number(Option<u64>),
+    PerCategory(HashMap<Category, Option<u64>>),
 }
 
-#[derive(PartialEq, Eq, Ord, PartialOrd, Hash)]
+impl Limit {
+    pub fn display<'me, 'arena: 'me, 'kind: 'me>(
+        &'me self,
+        kind: &'kind Kind,
+        arena: &'arena SearchableArena,
+    ) -> impl Display + 'me {
+        utils::fmt_helper(move |f| {
+            fn write_pair(f: &mut std::fmt::Formatter<'_>, key: &str, value: &Option<u64>) -> std::fmt::Result {
+                match value {
+                    Some(number) => writeln!(f, "{} = {}", key, number),
+                    None => writeln!(f, "{} = inf", key),
+                }
+            }
+
+            let kind_str = kind.to_str(&arena);
+            match self {
+                Limit::Number(x) => {
+                    write_pair(f, kind_str, x)?;
+                }
+                Limit::PerCategory(dict) => {
+                    writeln!(f, "[{}]", kind_str)?;
+                    for (cat, x) in dict {
+                        write_pair(f, cat.to_str(&arena), x)?;
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+#[derive(PartialEq, Eq, Ord, PartialOrd, Debug, Hash)]
 /// A LimitsEntry is a shorthand representation for a single numerical threshold within the system.
 /// To uniquely identify a [Limit](enum.Limit.html), you need a Path, a
 /// [Kind](../settings/struct.Kind.html) and a [Category](struct.Category.html).
@@ -175,19 +204,39 @@ fn parse_limits_file_from_str(
     arena: &mut SearchableArena,
     cfg: &str,
 ) -> Result<LimitsFile, Box<dyn Error>> {
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum IntOrFloat {
+        I(u64),
+        F(f32),
+    }
+
+    impl IntOrFloat {
+        fn to_limit(&self) -> Result<Option<u64>, Box<dyn Error>> {
+            match *self {
+                IntOrFloat::I(i) => Ok(Some(i)),
+                IntOrFloat::F(f) => if f.is_sign_positive() && f.is_infinite() {
+                    Ok(None)
+                } else {
+                    Err("Limit values can only be a positive integer or `inf`.".into())
+                }
+            }
+        }
+    }
+
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum RawLimitEntry<'input> {
-        Number(u64),
+        Number(IntOrFloat),
         #[serde(borrow)]
-        PerCategory(HashMap<&'input str, u64>),
+        PerCategory(HashMap<&'input str, IntOrFloat>),
     }
 
     let as_raw_dict: HashMap<&str, RawLimitEntry> = toml::from_str(&cfg)?;
     let mut result = HashMap::new();
 
     for (key, val) in as_raw_dict.into_iter() {
-        // TODO; Turn this is a prettier error
         let kind_id = arena.get_id(&key).ok_or_else(|| {
             format!(
                 "Referred to kind `{}` which has not been configured in the settings.",
@@ -195,19 +244,17 @@ fn parse_limits_file_from_str(
             )
         })?;
         let converted = match val {
-            RawLimitEntry::Number(x) => Limit::Number(x),
-            RawLimitEntry::PerCategory(dict) => Limit::PerCategory(
-                dict.into_iter()
-                    .map(|(cat_str, x)| {
-                        let category = if cat_str == "_" {
-                            Category::none()
-                        } else {
-                            Category::new(arena.get_or_insert(cat_str))
-                        };
-                        (category, x)
-                    })
-                    .collect(),
-            ),
+            RawLimitEntry::Number(x) => Limit::Number(x.to_limit()?),
+            RawLimitEntry::PerCategory(dict) => {
+                let mut per_category= HashMap::new();
+                for (cat_str, x) in dict {
+                    let limit = x.to_limit()?;
+                    let category = Category::from_str(cat_str, arena);
+                    per_category.insert(category, limit);
+                }
+
+                Limit::PerCategory(per_category)
+            },
         };
         result.insert(Kind::new(kind_id), converted);
     }
@@ -249,7 +296,7 @@ mod test {
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
 
-        assert_eq!(limits.get_limit(&gcc_kind), Some(&Limit::Number(1)));
+        assert_eq!(limits.get_limit(&gcc_kind), Some(&Limit::Number(Some(1))));
     }
 
     #[test]
@@ -266,7 +313,7 @@ mod test {
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-Wpedantic").expect("pedantic"));
-        let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 1), (cat_pedantic, 2)]
+        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, Some(1)), (cat_pedantic, Some(2))]
             .into_iter()
             .collect();
         assert_eq!(
@@ -289,7 +336,52 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 2), (Category::none(), 1)]
+        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            limits.get_limit(&gcc_kind),
+            Some(&Limit::PerCategory(expected_mapping))
+        );
+    }
+
+    #[test]
+    fn can_deserialize_inf() {
+        let limits_str = r#"
+        [gcc]
+        -Wbad-code = inf
+        _ = 1
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+
+        let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
+        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, None), (Category::none(), Some(1))]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            limits.get_limit(&gcc_kind),
+            Some(&Limit::PerCategory(expected_mapping))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected="only be a positive integer or `inf`")]
+    fn wont_deserialize_floats() {
+        let limits_str = r#"
+        [gcc]
+        -Wbad-code = 2.0
+        _ = 1
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+
+        let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
+        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
             .into_iter()
             .collect();
         assert_eq!(

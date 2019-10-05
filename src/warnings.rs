@@ -130,12 +130,12 @@ impl CountsTowardsLimit {
 /// A EntryCount is a pairing of a [Limit](../limits/struct.Limit.html) with an actual warning count.
 pub(crate) struct EntryCount<'entry> {
     entry: &'entry LimitsEntry,
-    limit: u64,
+    limit: Option<u64>,
     actual: u64,
 }
 
 impl<'entry> EntryCount<'entry> {
-    pub fn new(limits_entry: &'entry LimitsEntry, threshold: u64, num_warnings: u64) -> Self {
+    pub fn new(limits_entry: &'entry LimitsEntry, threshold: Option<u64>, num_warnings: u64) -> Self {
         EntryCount {
             entry: limits_entry,
             limit: threshold,
@@ -152,14 +152,23 @@ impl<'entry> EntryCount<'entry> {
         arena: &'arena SearchableArena,
     ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
-            write!(
-                f,
-                "{} ({} {} {})",
-                self.entry.display(&arena),
-                self.actual,
-                if self.actual > self.limit { ">" } else { "<=" },
-                self.limit
-            )
+            if let Some(limit) = self.limit {
+                    write!(
+                    f,
+                    "{} ({} {} {})",
+                    self.entry.display(&arena),
+                    self.actual,
+                    if self.actual > limit { ">" } else { "<=" },
+                    limit
+                )
+            } else {
+                write!(
+                    f,
+                    "{} ({} < inf)",
+                    self.entry.display(&arena),
+                    self.actual,
+                )
+            }
         })
     }
 }
@@ -209,7 +218,7 @@ impl<'a> FinalTally<'a> {
     }
 
     pub(crate) fn add(&mut self, entry: EntryCount<'a>) {
-        if entry.actual > entry.limit {
+        if entry.limit.is_some() && entry.actual > entry.limit.unwrap() {
             self.violations.push(entry);
             self.violations.sort();
         } else {
