@@ -199,8 +199,12 @@ fn parse_limits_file_from_str(
             RawLimitEntry::PerCategory(dict) => Limit::PerCategory(
                 dict.into_iter()
                     .map(|(cat_str, x)| {
-                        let cat_id = arena.get_or_insert(cat_str);
-                        (Category::new(cat_id), x)
+                        let category = if cat_str == "_" {
+                            Category::none()
+                        } else {
+                            Category::new(arena.get_or_insert(cat_str))
+                        };
+                        (category, x)
                     })
                     .collect(),
             ),
@@ -252,17 +256,40 @@ mod test {
     fn can_deserialize_with_categories() {
         let limits_str = r#"
         [gcc]
-        -wbad-code = 1
-        -wpedantic = 2
+        -Wbad-code = 1
+        -Wpedantic = 2
         "#;
 
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
-        let cat_bad_code = Category::new(arena.get_id("-wbad-code").expect("bad code"));
-        let cat_pedantic = Category::new(arena.get_id("-wpedantic").expect("pedantic"));
+        let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
+        let cat_pedantic = Category::new(arena.get_id("-Wpedantic").expect("pedantic"));
         let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 1), (cat_pedantic, 2)]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            limits.get_limit(&gcc_kind),
+            Some(&Limit::PerCategory(expected_mapping))
+        );
+    }
+
+
+    #[test]
+    fn can_deserialize_with_wildcard() {
+        let limits_str = r#"
+        [gcc]
+        -Wbad-code = 2
+        _ = 1
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+
+        let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
+        let expected_mapping: HashMap<Category, u64> = vec![(cat_bad_code, 2), (Category::none(), 1)]
             .into_iter()
             .collect();
         assert_eq!(
