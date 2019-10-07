@@ -135,7 +135,11 @@ pub(crate) struct EntryCount<'entry> {
 }
 
 impl<'entry> EntryCount<'entry> {
-    pub fn new(limits_entry: &'entry LimitsEntry, threshold: Option<u64>, num_warnings: u64) -> Self {
+    pub fn new(
+        limits_entry: &'entry LimitsEntry,
+        threshold: Option<u64>,
+        num_warnings: u64,
+    ) -> Self {
         EntryCount {
             entry: limits_entry,
             limit: threshold,
@@ -153,7 +157,7 @@ impl<'entry> EntryCount<'entry> {
     ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
             if let Some(limit) = self.limit {
-                    write!(
+                write!(
                     f,
                     "{} ({} {} {})",
                     self.entry.display(&arena),
@@ -162,12 +166,7 @@ impl<'entry> EntryCount<'entry> {
                     limit
                 )
             } else {
-                write!(
-                    f,
-                    "{} ({} < inf)",
-                    self.entry.display(&arena),
-                    self.actual,
-                )
+                write!(f, "{} ({} < inf)", self.entry.display(&arena), self.actual,)
             }
         })
     }
@@ -181,9 +180,7 @@ impl<'e> PartialOrd for EntryCount<'e> {
 
 impl<'e> PartialEq for EntryCount<'e> {
     fn eq(&self, other: &EntryCount) -> bool {
-        self.entry.eq(&other.entry)
-            && self.limit.eq(&other.limit)
-            && self.actual.eq(&other.actual)
+        self.entry.eq(&other.entry) && self.limit.eq(&other.limit) && self.actual.eq(&other.actual)
     }
 }
 
@@ -200,7 +197,6 @@ impl<'e> Ord for EntryCount<'e> {
         }
     }
 }
-
 
 /// A FinalTally is the combined counts, for every [LimitEntry](../limits/struct.LimitEntry.html), the limit
 /// and the actual warning count.

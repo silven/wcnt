@@ -100,7 +100,11 @@ impl Limit {
         arena: &'arena SearchableArena,
     ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
-            fn write_pair(f: &mut std::fmt::Formatter<'_>, key: &str, value: &Option<u64>) -> std::fmt::Result {
+            fn write_pair(
+                f: &mut std::fmt::Formatter<'_>,
+                key: &str,
+                value: &Option<u64>,
+            ) -> std::fmt::Result {
                 match value {
                     Some(number) => writeln!(f, "{} = {}", key, number),
                     None => writeln!(f, "{} = inf", key),
@@ -205,7 +209,6 @@ fn parse_limits_file_from_str(
     arena: &mut SearchableArena,
     cfg: &str,
 ) -> Result<LimitsFile, Box<dyn Error>> {
-
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum IntOrFloat {
@@ -217,10 +220,12 @@ fn parse_limits_file_from_str(
         fn to_limit(&self) -> Result<Option<u64>, Box<dyn Error>> {
             match *self {
                 IntOrFloat::I(i) => Ok(Some(i)),
-                IntOrFloat::F(f) => if f.is_sign_positive() && f.is_infinite() {
-                    Ok(None)
-                } else {
-                    Err("Limit values can only be a positive integer or `inf`.".into())
+                IntOrFloat::F(f) => {
+                    if f.is_sign_positive() && f.is_infinite() {
+                        Ok(None)
+                    } else {
+                        Err("Limit values can only be a positive integer or `inf`.".into())
+                    }
                 }
             }
         }
@@ -247,7 +252,7 @@ fn parse_limits_file_from_str(
         let converted = match val {
             RawLimitEntry::Number(x) => Limit::Number(x.to_limit()?),
             RawLimitEntry::PerCategory(dict) => {
-                let mut per_category= HashMap::new();
+                let mut per_category = HashMap::new();
                 for (cat_str, x) in dict {
                     let limit = x.to_limit()?;
                     let category = Category::from_str(cat_str, arena);
@@ -255,7 +260,7 @@ fn parse_limits_file_from_str(
                 }
 
                 Limit::PerCategory(per_category)
-            },
+            }
         };
         result.insert(Kind::new(kind_id), converted);
     }
@@ -314,15 +319,15 @@ mod test {
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-Wpedantic").expect("pedantic"));
-        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, Some(1)), (cat_pedantic, Some(2))]
-            .into_iter()
-            .collect();
+        let expected_mapping: HashMap<Category, Option<u64>> =
+            vec![(cat_bad_code, Some(1)), (cat_pedantic, Some(2))]
+                .into_iter()
+                .collect();
         assert_eq!(
             limits.get_limit(&gcc_kind),
             Some(&Limit::PerCategory(expected_mapping))
         );
     }
-
 
     #[test]
     fn can_deserialize_with_wildcard() {
@@ -337,9 +342,10 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
-            .into_iter()
-            .collect();
+        let expected_mapping: HashMap<Category, Option<u64>> =
+            vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
+                .into_iter()
+                .collect();
         assert_eq!(
             limits.get_limit(&gcc_kind),
             Some(&Limit::PerCategory(expected_mapping))
@@ -359,9 +365,10 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, None), (Category::none(), Some(1))]
-            .into_iter()
-            .collect();
+        let expected_mapping: HashMap<Category, Option<u64>> =
+            vec![(cat_bad_code, None), (Category::none(), Some(1))]
+                .into_iter()
+                .collect();
         assert_eq!(
             limits.get_limit(&gcc_kind),
             Some(&Limit::PerCategory(expected_mapping))
@@ -369,7 +376,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="only be a positive integer or `inf`")]
+    #[should_panic(expected = "only be a positive integer or `inf`")]
     fn wont_deserialize_floats() {
         let limits_str = r#"
         [gcc]
@@ -382,9 +389,10 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, Option<u64>> = vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
-            .into_iter()
-            .collect();
+        let expected_mapping: HashMap<Category, Option<u64>> =
+            vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
+                .into_iter()
+                .collect();
         assert_eq!(
             limits.get_limit(&gcc_kind),
             Some(&Limit::PerCategory(expected_mapping))

@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::read_to_string;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{App, Arg};
 use crossbeam_channel::Receiver;
@@ -124,7 +124,6 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
     })
 }
 
-
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let args = parse_args()?;
@@ -145,21 +144,33 @@ fn main() -> Result<(), Box<dyn Error>> {
         trace!("{}", limits_file.display(&settings.string_arena));
     }
 
-    let rx = search_in_files::search_files(&settings, &log_files, &limits);
+    let rx = search_in_files::search_files(
+        &settings,
+        &log_files,
+        &limits
+            .keys()
+            .map(PathBuf::as_path)
+            .collect::<HashSet<&Path>>(),
+    );
     let results = gather_results_from_logs(&mut settings.string_arena, rx);
 
     // Flatten the limit entries to make it easier to match
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
     let flat_limits = flatten_limits(&limits);
-    let defaults: HashMap<&Kind, Option<u64>> = settings.iter()
-        .map(|(k, sf)| (k, sf.default))
-        .collect();
+    let defaults: HashMap<&Kind, Option<u64>> =
+        settings.iter().map(|(k, sf)| (k, sf.default)).collect();
 
     // Finally, check the results and report any violations
     let tally = check_warnings_against_thresholds(&flat_limits, &results, &defaults);
     let violations = tally.violations();
     if !violations.is_empty() {
-        report_violations(args, &settings.string_arena, &results, &violations, &tally.non_violations());
+        report_violations(
+            args,
+            &settings.string_arena,
+            &results,
+            &violations,
+            &tally.non_violations(),
+        );
         eprintln!(
             "Found {} violations against specified limits.",
             violations.len()
@@ -293,7 +304,10 @@ fn check_warnings_against_thresholds<'entries, 'x>(
             None => match flat_limits.get(&limits_entry.without_category()) {
                 Some(x) => *x,
                 // Important to note that if defaults[kind] is None, that means zero, not inf.
-                None => defaults.get(&limits_entry.kind).expect("No kind?").or(Some(0)),
+                None => defaults
+                    .get(&limits_entry.kind)
+                    .expect("No kind?")
+                    .or(Some(0)),
             },
         };
         tally.add(EntryCount::new(limits_entry, threshold, num_warnings));

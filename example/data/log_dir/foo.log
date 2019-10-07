@@ -63,7 +63,7 @@ warning: unused import: `crate::file_search::FileData::Limits`
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: unused import: `ignore::types::Types`
- --> src\file_search.rs:7:5
+ --> data\c\a.rs:7:5
   |
 7 | use ignore::types::Types;
   |     ^^^^^^^^^^^^^^^^^^^^
@@ -120,7 +120,7 @@ warning: unused `std::result::Result` that must be used
     = note: this `Result` may be an `Err` variant, which should be handled
 
 warning: unused `std::result::Result` that must be used
-  --> src\file_search.rs:52:17
+  --> data\c\a.rs:52:17
    |
 52 |                 tx.send(FileData::Limits(directory, dict));
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -128,7 +128,7 @@ warning: unused `std::result::Result` that must be used
    = note: this `Result` may be an `Err` variant, which should be handled
 
 warning: unused `std::result::Result` that must be used
-  --> src\file_search.rs:55:17
+  --> data\c\a.rs:55:17
    |
 55 |                 tx.send(FileData::ParseLimitsError(entry.into_path(), config_error));
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -136,7 +136,7 @@ warning: unused `std::result::Result` that must be used
    = note: this `Result` may be an `Err` variant, which should be handled
 
 warning: unused `std::result::Result` that must be used
-  --> src\file_search.rs:67:13
+  --> data\c\a.rs:67:13
    |
 67 |             tx.send(FileData::LogFile(abs_path, file_ts));
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

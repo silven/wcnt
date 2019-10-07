@@ -10,10 +10,9 @@ use crossbeam_channel::Receiver;
 use log::{error, trace};
 use regex::Regex;
 
-use crate::limits::{Category, LimitsEntry, LimitsFile};
+use crate::limits::{Category, LimitsEntry};
 use crate::search_for_files::LogFile;
 use crate::settings::{Kind, Settings};
-use crate::utils;
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
 
@@ -33,7 +32,7 @@ pub(crate) struct LogSearchResults {
 pub(crate) fn search_files<'logs>(
     settings: &Settings,
     log_files: &'logs [LogFile],
-    limits: &HashMap<PathBuf, LimitsFile>,
+    limits: &HashSet<&Path>,
 ) -> Receiver<Result<LogSearchResults, (&'logs LogFile, std::io::Error)>> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
@@ -62,13 +61,15 @@ pub(crate) fn search_files<'logs>(
                                     &file_contents_handle,
                                     regex,
                                 );
-                                tx.send(Ok(result)).expect("Could not send() logfile result");
+                                tx.send(Ok(result))
+                                    .expect("Could not send() logfile result");
                             });
                         }
                     }
                     Err(e) => {
                         error!("Could not read log file: {}, {}", lf.path().display(), e);
-                        tx.send(Err((lf, e))).expect("Could not send() logfile io error");
+                        tx.send(Err((lf, e)))
+                            .expect("Could not send() logfile io error");
                     }
                 }
             });
@@ -82,7 +83,7 @@ pub(crate) fn search_files<'logs>(
 /// appropriate [LimitsEntry](../limits/struct.LimitsEntry.html) and return the
 /// [search results](struct.LogSearchResults.html).
 fn build_regex_searcher(
-    limits: &HashMap<PathBuf, LimitsFile>,
+    limits: &HashSet<&Path>,
     kind: &Kind,
     file_contents: &str,
     regex: Regex,
@@ -96,16 +97,23 @@ fn build_regex_searcher(
     let mut limits_cache: HashMap<PathBuf, Option<&Path>> = HashMap::new();
 
     for matching in regex.captures_iter(file_contents) {
-        // What file is the culprit?
+        // What file is the culprit? TODO: We don't have any decent normalize() function yet..
         let culprit_file = matching
             .name("file")
-            .map(|m| PathBuf::from(m.as_str()))
+            .map(|m| PathBuf::from(m.as_str().replace("\\", "/")))
             .unwrap();
+
         // Try to identify the warning using line, column, category and description
-        let line: Option<NonZeroUsize> = matching.name("line").map(|m|
-           m.as_str().parse().unwrap_or_else(|e| panic!("Capture for `line` was not a non zero number: `{}`", e)));
-        let column: Option<NonZeroUsize> = matching.name("column").map(|m|
-            m.as_str().parse().unwrap_or_else(|e| panic!("Capture for `column` was not a non zero number: `{}`", e)));
+        let line: Option<NonZeroUsize> = matching.name("line").map(|m| {
+            m.as_str()
+                .parse()
+                .unwrap_or_else(|e| panic!("Capture for `line` was not a non zero number: `{}`", e))
+        });
+        let column: Option<NonZeroUsize> = matching.name("column").map(|m| {
+            m.as_str().parse().unwrap_or_else(|e| {
+                panic!("Capture for `column` was not a non zero number: `{}`", e)
+            })
+        });
         let cat_match = matching.name("category").map(|m| m.as_str());
         let desc_match = matching.name("description").map(|m| m.as_str());
 
@@ -147,36 +155,61 @@ fn build_regex_searcher(
 
 /// Every warning originates at a "culprit" file. These files are located under a Limits.toml file
 /// in the file system tree. `find_limits_for` finds the Limits.toml file "responsible" for the
-/// culprit, so we know which [limits](../limits/enum.Limit.html) to use.
+/// culprit, so we know which [limits](../limits/enum.Limit.html) to use. Returns `None` if no
+/// such file was found, and we should fallback to the kind default.
+/// IMPORTANT NOTE: When run under Linux, `culprit_file` must not include \ -characters, because of
+/// how Rust doesn't treat them as path separators. `build_regex_searcher` does a string replace
+/// operation before calling this function, so it shouldn't be a problem in real world scenarios.
 fn find_limits_for<'limits, 'culprit>(
-    limits: &'limits HashMap<PathBuf, LimitsFile>,
+    limits: &'limits HashSet<&Path>,
     culprit_file: &'culprit Path,
 ) -> Option<&'limits Path> {
-    let mut maybe_parent = culprit_file.parent();
-    while let Some(parent_dir) = maybe_parent {
+    for parent_dir in culprit_file.ancestors() {
         // This happens when parent of . turns into empty string.
         // I want `while let Some(d) && d.parent().is_some() = culprit_file.parent()`
         if parent_dir.parent().is_none() {
             break;
         }
-        // TODO: This should be able to be done more efficiently
-        for found_limit_file in limits.keys() {
-            let limit_file_folder = found_limit_file.parent().unwrap_or_else(|| {
-                panic!(
-                    "Limits file `{}` has no parent!",
-                    found_limit_file.display()
-                )
-            });
+        // TODO: This should be possible to do more efficiently
+        for limit_file in limits {
+            let limit_file_folder = limit_file
+                .parent()
+                .unwrap_or_else(|| panic!("Limits file `{}` has no parent!", limit_file.display()));
             if limit_file_folder.ends_with(parent_dir) {
                 trace!(
                     "Culprit `{}` should count towards limits defined in `{}`",
                     culprit_file.display(),
-                    found_limit_file.display()
+                    limit_file.display()
                 );
-                return Some(found_limit_file);
+                return Some(limit_file);
             }
         }
-        maybe_parent = parent_dir.parent();
     }
     None
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn find_limits_for_handles_slashes() {
+        let limits_1 = Path::new("foo/bar/Limits.toml");
+        let limits_2 = Path::new("foo/bar/baz/Limits.toml");
+        let limits: HashSet<&Path> = vec![limits_1, limits_2].into_iter().collect();
+
+        assert_eq!(find_limits_for(&limits, Path::new("data/file.c")), None);
+        assert_eq!(
+            find_limits_for(&limits, Path::new("foo/bar/file.c")),
+            Some(limits_1)
+        );
+        assert_eq!(
+            find_limits_for(&limits, Path::new("foo/bar/baz/badoo/main.c")),
+            Some(limits_2)
+        );
+        assert_eq!(
+            find_limits_for(&limits, Path::new("bar/baz/main.c")),
+            Some(limits_2)
+        );
+    }
 }
