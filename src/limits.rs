@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
+use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 
 use id_arena::Id;
@@ -194,7 +195,7 @@ pub(crate) fn parse_limits_file(
     arena: &mut SearchableArena,
     file: &Path,
 ) -> Result<LimitsFile, Box<dyn Error>> {
-    let file_contents = utils::read_file(file)?;
+    let file_contents = read_to_string(file)?;
     parse_limits_file_from_str(arena, &file_contents)
         .map_err(|e| format!("Could not parse `{}`. Reason `{}`", file.display(), e).into())
 }

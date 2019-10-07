@@ -1,6 +1,7 @@
 //! Module responsible for searching inside files, looking for warnings and matching them against
 //! the identified limits.
 use std::collections::{HashMap, HashSet};
+use std::fs::read_to_string;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -40,7 +41,7 @@ pub(crate) fn search_files<'logs>(
         for lf in log_files {
             let tx = tx.clone();
             scope.spawn(move |scope| {
-                match utils::read_file(lf.path()) {
+                match read_to_string(lf.path()) {
                     Ok(loaded_file) => {
                         // Move the file into an Arc so we can share it across threads
                         let file_handle = Arc::new(loaded_file);

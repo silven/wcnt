@@ -9,6 +9,7 @@
 //! that subtree until a deeper, more specific Limits.toml file is encountered.
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::fs::read_to_string;
 use std::path::PathBuf;
 
 use clap::{App, Arg};
@@ -130,7 +131,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Parsed arguments `{:?}`", args);
 
     let mut settings: Settings = {
-        let config_file = utils::read_file(args.config_file.as_path())?;
+        let config_file = read_to_string(args.config_file.as_path())?;
         toml::from_str(&config_file)?
     };
     debug!("Starting with these settings: {}", settings.display());

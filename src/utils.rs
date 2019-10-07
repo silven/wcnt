@@ -1,10 +1,9 @@
 //! Misc utilities.
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::path::Path;
+use std::marker::PhantomData;
 
 use id_arena::{Arena, Id};
-use std::marker::PhantomData;
 
 /// A small helper struct, wrapping a closure, implementing Display by calling that closure.
 struct FmtHelper<'obj, F>
@@ -104,16 +103,6 @@ impl SearchableArena {
             self.get_or_insert(val);
         }
     }
-}
-
-/// Read a whole file into a String.
-pub(crate) fn read_file(filename: &Path) -> Result<String, std::io::Error> {
-    use std::io::Read;
-
-    let mut buff = String::with_capacity(4096);
-    let mut f = std::fs::File::open(filename)?;
-    f.read_to_string(&mut buff)?;
-    Ok(buff)
 }
 
 #[cfg(test)]
