@@ -157,8 +157,8 @@ fn build_regex_searcher(
 /// in the file system tree. `find_limits_for` finds the Limits.toml file "responsible" for the
 /// culprit, so we know which [limits](../limits/enum.Limit.html) to use. Returns `None` if no
 /// such file was found, and we should fallback to the kind default.
-/// IMPORTANT NOTE: When run under Linux, `culprit_file` must not include \ -characters, because of
-/// how Rust doesn't treat them as path separators. `build_regex_searcher` does a string replace
+/// IMPORTANT NOTE: When run under Linux, `culprit_file` *must not* include \ -characters, because
+/// of how Rust doesn't treat them as path separators. `build_regex_searcher` does a string replace
 /// operation before calling this function, so it shouldn't be a problem in real world scenarios.
 fn find_limits_for<'limits, 'culprit>(
     limits: &'limits HashSet<&Path>,
@@ -193,7 +193,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn find_limits_for_handles_slashes() {
+    fn find_limits_finds_files() {
         let limits_1 = Path::new("foo/bar/Limits.toml");
         let limits_2 = Path::new("foo/bar/baz/Limits.toml");
         let limits: HashSet<&Path> = vec![limits_1, limits_2].into_iter().collect();

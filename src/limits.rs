@@ -128,7 +128,7 @@ impl Limit {
     }
 }
 
-#[derive(PartialEq, Eq, Ord, PartialOrd, Debug, Hash)]
+#[derive(PartialEq, Eq, Ord, PartialOrd, Debug, Clone, Hash)]
 /// A LimitsEntry is a shorthand representation for a single numerical threshold within the system.
 /// To uniquely identify a [Limit](enum.Limit.html), you need a Path, a
 /// [Kind](../settings/struct.Kind.html) and a [Category](struct.Category.html).

@@ -47,7 +47,7 @@ impl Description {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 /// A warning is anything that counts towards a limit. We identity it with a path to a `culprit`,
 /// the [Kind](../settings/struct.Kind.html) causing us to look for the warning in the first place,
 /// and optionally line, column, [Category](../limits/struct.Category.html) and [Description](struct.Description.html)

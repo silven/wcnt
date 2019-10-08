@@ -152,13 +152,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map(PathBuf::as_path)
             .collect::<HashSet<&Path>>(),
     );
-    let results = gather_results_from_logs(&mut settings.string_arena, rx);
 
     // Flatten the limit entries to make it easier to match
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
+    let results_tmp = gather_results_from_logs(&mut settings.string_arena, rx);
     let flat_limits = flatten_limits(&limits);
     let defaults: HashMap<&Kind, Option<u64>> =
         settings.iter().map(|(k, sf)| (k, sf.default)).collect();
+
+    let results = remap_to_actual_limit_entries(&flat_limits, results_tmp);
 
     // Finally, check the results and report any violations
     let tally = check_warnings_against_thresholds(&flat_limits, &results, &defaults);
@@ -179,6 +181,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         Ok(())
     }
+}
+
+
+/// Because the LimitEntries from the warnings use the category from the warning pass, it might
+/// always map to an actual user defined warning. This pass lookup the actual warnings and ensure
+/// that we have a user defined limit when doing later comparisons.
+fn remap_to_actual_limit_entries(
+    defined_limits: &HashMap<LimitsEntry, Option<u64>>,
+    found: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
+) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
+    let mut result = HashMap::new();
+
+    for (limit, warnings) in found {
+        let key = if defined_limits.contains_key(&limit) {
+            limit
+        } else if defined_limits.contains_key(&limit.without_category()) {
+            limit.without_category()
+        }  else {
+            // This is a default, we should probably handle this better
+            limit
+            //panic!("Did not find an appropriate entry inside {:?} for {:?}", defined_limits, limit);
+        };
+
+        result
+            .entry(key)
+            .or_insert_with(HashSet::new)
+            .extend(warnings);
+    }
+    result
 }
 
 type LogAndLimitFiles = (Vec<LogFile>, HashMap<PathBuf, LimitsFile>);
@@ -264,8 +295,8 @@ fn gather_results_from_logs(
     results
 }
 
-/// Process a single [Log Search Result](struct.LogSearchResult.html) and gather all warnings that
-/// should [count towards the limit](struct.CoundsTowardsLimit.html).
+/// Process a single [Log Search Result](../search_in_files/struct.LogSearchResult.html) and gather all warnings that
+/// should [count towards the limit](../warnings/struct.CountsTowardsLimit.html).
 fn process_search_results(
     arena: &mut SearchableArena,
     search_result: LogSearchResults,
@@ -288,8 +319,8 @@ fn process_search_results(
     results
 }
 
-/// Check the collected [warnings](struct.CountsTowardsLimit.html) and compare the amount of them
-/// against the declared [limits](struct.LimitsEntry.html), resulting in a
+/// Check the collected [warnings](../warnings/struct.CountsTowardsLimit.html) and compare the amount of them
+/// against the declared [limits](../limits/struct.LimitsEntry.html), resulting in a
 /// [FinalTally](../warnings/struct.FinalTally.html).
 fn check_warnings_against_thresholds<'entries, 'x>(
     flat_limits: &'x HashMap<LimitsEntry, Option<u64>>,
@@ -301,14 +332,10 @@ fn check_warnings_against_thresholds<'entries, 'x>(
         let num_warnings = warnings.len() as u64;
         let threshold = match flat_limits.get(&limits_entry) {
             Some(x) => *x,
-            None => match flat_limits.get(&limits_entry.without_category()) {
-                Some(x) => *x,
-                // Important to note that if defaults[kind] is None, that means zero, not inf.
-                None => defaults
-                    .get(&limits_entry.kind)
-                    .expect("No kind?")
-                    .or(Some(0)),
-            },
+            None => defaults
+                .get(&limits_entry.kind)
+                .expect("We cannot have detected a warning for a kind we have no settings for.")
+                .or(Some(0)),
         };
         tally.add(EntryCount::new(limits_entry, threshold, num_warnings));
     }
@@ -401,5 +428,169 @@ mod test {
         let _result = process_search_results(&mut arena_1, search_result);
         assert!(arena_1.get_id("kind").is_some());
         assert!(arena_1.get_id("category").is_some());
+    }
+
+    #[test]
+    fn gather_results_from_logs_deduplicate_warnings_but_doesnt_remap_categories() {
+        let mut main_arena = SearchableArena::new();
+        let kind = Kind::new(main_arena.insert("kind".to_owned()));
+
+        let mut first_arena = SearchableArena::new();
+        let mut second_arena = SearchableArena::new();
+
+        // First search finds both warnings
+        let category_code1 = Category::new(first_arena.insert("-Wbad-code".to_owned()));
+        let category_header1 = Category::new(first_arena.insert("-Wbad-interface".to_owned()));
+
+        let desc_code1 = Description::new(first_arena.insert("Bad code".to_owned()));
+        let desc_header1 = Description::new(first_arena.insert("Bad interface".to_owned()));
+
+        // Second search finds only one
+        let category_header2 = Category::new(second_arena.insert("-Wbad-interface".to_owned()));
+        let desc_header2 = Description::new(second_arena.insert("Bad interface".to_owned()));
+
+
+        let code_limit_entry = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            category_code1.clone()
+        );
+
+        let header_limit_entry1 = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            category_header1.clone()
+        );
+
+        let header_limit_entry2 = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            category_header2.clone()
+        );
+
+        // Code warning appears only in first search result
+        let our_code_warning = CountsTowardsLimit::new(
+            PathBuf::from("/tmp/src/code.c"),
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(NonZeroUsize::new(1).unwrap()),
+            kind.clone(),
+            category_code1.clone(),
+            desc_code1.clone(),
+        );
+
+        //  Interface warning appears in both searches
+        let our_header_warning1 = CountsTowardsLimit::new(
+            PathBuf::from("/tmp/src/interface.h"),
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(NonZeroUsize::new(1).unwrap()),
+            kind.clone(),
+            category_header1,
+            desc_header1,
+        );
+
+        let our_header_warning2 = CountsTowardsLimit::new(
+            PathBuf::from("/tmp/src/interface.h"),
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(NonZeroUsize::new(1).unwrap()),
+            kind.clone(),
+            category_header2,
+            desc_header2,
+        );
+
+        let search_result1 = {
+            let mut dict = HashMap::new();
+            dict.entry(code_limit_entry)
+                .or_insert_with(HashSet::new)
+                .extend(vec![our_code_warning]);
+            dict.entry(header_limit_entry1)
+                .or_insert_with(HashSet::new)
+                .extend(vec![our_header_warning1]);
+            LogSearchResults {
+                string_arena: first_arena,
+                warnings: dict,
+            }
+        };
+
+        let search_result2 = {
+            let mut dict = HashMap::new();
+            dict.entry(header_limit_entry2)
+                .or_insert_with(HashSet::new)
+                .extend(vec![our_header_warning2]);
+            LogSearchResults {
+                string_arena: second_arena,
+                warnings: dict,
+            }
+        };
+
+        let (tx, rx) = crossbeam_channel::bounded(10);
+        tx.send(Ok(search_result1)).unwrap();
+        tx.send(Ok(search_result2)).unwrap();
+        drop(tx);
+        // Act
+        let results = gather_results_from_logs(&mut main_arena, rx);
+
+        // Assert
+        let main_category_code = Category::new(main_arena.get_id("-Wbad-code").unwrap());
+        let main_category_header = Category::new(main_arena.get_id("-Wbad-interface").unwrap());
+        let main_desc_code = Description::new(main_arena.get_id("Bad code").unwrap());
+        let main_desc_interface  = Description::new(main_arena.get_id("Bad interface").unwrap());
+
+        let expected_code_warning = CountsTowardsLimit::new(
+            PathBuf::from("/tmp/src/code.c"),
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(NonZeroUsize::new(1).unwrap()),
+            kind.clone(),
+            main_category_code.clone(),
+            main_desc_code.clone(),
+        );
+        let expected_interface_warning = CountsTowardsLimit::new(
+            PathBuf::from("/tmp/src/interface.h"),
+            Some(NonZeroUsize::new(1).unwrap()),
+            Some(NonZeroUsize::new(1).unwrap()),
+            kind.clone(),
+            main_category_header.clone(),
+            main_desc_interface.clone(),
+        );
+
+        let main_code_entry = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            main_category_code,
+        );
+        let main_interface_entry = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            main_category_header,
+        );
+
+        // This is a problem because now we have two warning that, during lookup, will both
+        // individually be compared to the user defined limit, which could be 1. Then our
+        // program would do the wrong thing. The entries need to be remapped.
+        let mut expected_result = HashMap::new();
+        expected_result
+            .entry(main_code_entry)
+            .or_insert_with(HashSet::new)
+            .extend(vec![expected_code_warning.clone()]);
+        expected_result
+            .entry(main_interface_entry)
+            .or_insert_with(HashSet::new)
+            .extend(vec![expected_interface_warning.clone()]);
+        assert_eq!(expected_result, results);
+
+
+        let defined_limit_entry = LimitsEntry::new(Some("/tmp/Limits.toml".as_ref()), kind.clone(), Category::none());
+        let mut defined_limits = HashMap::new();
+        defined_limits.insert(
+            defined_limit_entry.clone(),
+            Some(1));
+        let processed_results = remap_to_actual_limit_entries(&defined_limits, results);
+        assert_ne!(expected_result, processed_results);
+
+        let mut expected_processed_results = HashMap::new();
+        expected_processed_results
+            .entry(defined_limit_entry)
+            .or_insert_with(HashSet::new)
+            .extend(vec![expected_interface_warning, expected_code_warning]);
+        assert_eq!(expected_processed_results, processed_results);
     }
 }
