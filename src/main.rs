@@ -203,9 +203,11 @@ fn update_limits(settings: &Settings, limits: &HashMap<PathBuf, LimitsFile>, tal
     for entry_count in tally.non_violations() {
         let entry = entry_count.entry();
         if let Some(limits_path) = &entry.limits_file {
-            let limit_file = limits_copy.get_mut(limits_path).expect("No such limits file?");
+            let limit_file = limits_copy.get_mut(limits_path).expect("Infallible lookup");
             limit_file.update_limits(&entry_count);
-            updated.insert(limits_path);
+            if limit_file != limits.get(limits_path).expect("Infallible lookup") {
+                updated.insert(limits_path);
+            }
         }
     }
     for path in updated {

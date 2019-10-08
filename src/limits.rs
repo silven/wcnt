@@ -58,7 +58,7 @@ impl Category {
 
 /// A LimitsFile declares a [Limit](struct.Limit.html) for a [Kind](../settings/struct.Kind.html) as a threshold
 /// of number of warnings allowed.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct LimitsFile {
     inner: LinkedHashMap<Kind, Limit>,
 }
