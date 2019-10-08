@@ -1,5 +1,5 @@
 //! Module responsible for structures and functionality related to Limits and Limit files.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Display;
 use std::fs::read_to_string;
@@ -76,8 +76,11 @@ impl LimitsFile {
     ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
             writeln!(f, "LimitsFile {{")?;
-            for (kind, limit) in &self.inner {
+            for (kind, limit) in self.inner.iter().filter(|(_, l)| l.is_simple()) {
                 write!(f, "{}", limit.display(kind, arena))?;
+            }
+            for (kind, limit) in self.inner.iter().filter(|(_, l)| !l.is_simple()) {
+                write!(f, "\n{}", limit.display(kind, arena))?;
             }
             write!(f, "}}")
         })
@@ -94,6 +97,13 @@ pub(crate) enum Limit {
 }
 
 impl Limit {
+    fn is_simple(&self) -> bool {
+        match self {
+            Limit::Number(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn display<'me, 'arena: 'me, 'kind: 'me>(
         &'me self,
         kind: &'kind Kind,
@@ -198,9 +208,10 @@ impl LimitsEntry {
 pub(crate) fn parse_limits_file(
     arena: &mut SearchableArena,
     file: &Path,
+    categorizables: &HashSet<Kind>,
 ) -> Result<LimitsFile, Box<dyn Error>> {
     let file_contents = read_to_string(file)?;
-    parse_limits_file_from_str(arena, &file_contents)
+    parse_limits_file_from_str(arena, &file_contents, &categorizables)
         .map_err(|e| format!("Could not parse `{}`. Reason `{}`", file.display(), e).into())
 }
 
@@ -208,6 +219,7 @@ pub(crate) fn parse_limits_file(
 fn parse_limits_file_from_str(
     arena: &mut SearchableArena,
     cfg: &str,
+    categorizables: &HashSet<Kind>,
 ) -> Result<LimitsFile, Box<dyn Error>> {
     #[derive(Deserialize)]
     #[serde(untagged)]
@@ -249,9 +261,13 @@ fn parse_limits_file_from_str(
                 key
             )
         })?;
+        let kind = Kind::new(kind_id);
         let converted = match val {
             RawLimitEntry::Number(x) => Limit::Number(x.to_limit()?),
             RawLimitEntry::PerCategory(dict) => {
+                if !categorizables.contains(&kind) {
+                    return Err(format!("Kind `{}` is not categorizable.", key).into());
+                }
                 let mut per_category = HashMap::new();
                 for (cat_str, x) in dict {
                     let limit = x.to_limit()?;
@@ -262,7 +278,7 @@ fn parse_limits_file_from_str(
                 Limit::PerCategory(per_category)
             }
         };
-        result.insert(Kind::new(kind_id), converted);
+        result.insert(kind, converted);
     }
 
     Ok(LimitsFile { inner: result })
@@ -277,8 +293,9 @@ mod test {
         let limits_str = r#"
         "#;
 
+        let categorizable = HashSet::new();
         let mut arena = SearchableArena::new();
-        parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
+        parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).unwrap();
     }
 
     #[test]
@@ -288,8 +305,9 @@ mod test {
         gcc = 1
         "#;
 
+        let categorizable = HashSet::new();
         let mut arena = SearchableArena::new();
-        parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
+        parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).unwrap();
     }
 
     #[test]
@@ -300,7 +318,8 @@ mod test {
 
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str).unwrap();
+        let categorizable = HashSet::new();
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).unwrap();
 
         assert_eq!(limits.get_limit(&gcc_kind), Some(&Limit::Number(Some(1))));
     }
@@ -315,7 +334,9 @@ mod test {
 
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-Wpedantic").expect("pedantic"));
@@ -330,6 +351,21 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected="`gcc` is not categorizable")]
+    fn cannot_deserialize_without_being_categorizable() {
+        let limits_str = r#"
+        [gcc]
+        -Wbad-code = 1
+        -Wpedantic = 2
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let categorizable = HashSet::new();
+        parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+    }
+
+    #[test]
     fn can_deserialize_with_wildcard() {
         let limits_str = r#"
         [gcc]
@@ -339,7 +375,9 @@ mod test {
 
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let expected_mapping: HashMap<Category, Option<u64>> =
@@ -362,7 +400,9 @@ mod test {
 
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let expected_mapping: HashMap<Category, Option<u64>> =
@@ -386,7 +426,9 @@ mod test {
 
         let mut arena = SearchableArena::new();
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str).expect("parse");
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let expected_mapping: HashMap<Category, Option<u64>> =

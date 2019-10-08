@@ -41,6 +41,16 @@ impl Settings {
         self.inner.iter()
     }
 
+    pub(crate) fn categorizables(&self) -> HashSet<Kind> {
+        let mut result = HashSet::new();
+        for (kind, sf) in self.iter() {
+            if sf.categorizable {
+                result.insert(kind.clone());
+            }
+        }
+        result
+    }
+
     pub fn get(&self, key: &Kind) -> Option<&SettingsField> {
         self.inner.get(key)
     }
@@ -66,6 +76,7 @@ pub(crate) struct SettingsField {
     pub(crate) regex: Regex,
     pub(crate) files: Vec<String>,
     pub(crate) default: Option<u64>,
+    categorizable: bool,
 }
 
 impl<'de> Deserialize<'de> for Settings {
@@ -115,10 +126,16 @@ impl<'de> Deserialize<'de> for SettingsField {
             .build()
             .map_err(serde::de::Error::custom)?;
 
+        let categorizable = {
+            let captures: HashSet<&str> = as_regex.capture_names().flatten().collect();
+            captures.contains("category")
+        };
+
         Ok(SettingsField {
             regex: as_regex,
             files: raw.files,
             default: raw.default,
+            categorizable: categorizable,
         })
     }
 }

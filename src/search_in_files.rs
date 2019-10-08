@@ -166,8 +166,8 @@ fn find_limits_for<'limits, 'culprit>(
     culprit_file: &'culprit Path,
 ) -> Option<&'limits Path> {
     for parent_dir in culprit_file.ancestors() {
-        // This happens when parent of . turns into empty string.
-        // I want `while let Some(d) && d.parent().is_some() = culprit_file.parent()`
+        // This happens when parent_dir turns into empty string,
+        // and everything ends with an empty string...
         if parent_dir.parent().is_none() {
             break;
         }

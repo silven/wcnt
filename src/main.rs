@@ -136,8 +136,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Starting with these settings: {}", settings.display());
 
     let globset = construct_types_info(&settings)?;
+    let categorizables = settings.categorizables();
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
-    let (log_files, limits) = collect_file_results(&mut settings.string_arena, rx)?;
+    let (log_files, limits) = collect_file_results(&mut settings.string_arena, &categorizables, rx)?;
 
     for (path, limits_file) in &limits {
         debug!("Found Limits.toml file at `{}`", path.display());
@@ -216,6 +217,7 @@ type LogAndLimitFiles = (Vec<LogFile>, HashMap<PathBuf, LimitsFile>);
 /// Read from the channel producing file results and gather them up into lists.
 fn collect_file_results(
     arena: &mut SearchableArena,
+    categorizables: &HashSet<Kind>,
     rx: Receiver<FileData>,
 ) -> Result<LogAndLimitFiles, Box<dyn Error>> {
     let mut log_files = Vec::with_capacity(256);
@@ -226,7 +228,7 @@ fn collect_file_results(
                 log_files.push(log_file);
             }
             FileData::LimitsFile(path) => {
-                let limit = limits::parse_limits_file(arena, &path)?;
+                let limit = limits::parse_limits_file(arena, &path, categorizables)?;
                 limits.insert(path, limit);
             }
         }
