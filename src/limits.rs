@@ -38,10 +38,10 @@ impl Category {
         }
     }
 
-    pub fn to_str<'arena>(&self, arena: &'arena SearchableArena) -> &'arena str {
+    pub fn to_str<'arena>(&self, arena: &'arena SearchableArena) -> Option<&'arena str> {
         match self.0 {
-            Some(cat_id) => arena.lookup(cat_id).unwrap(),
-            None => "_",
+            Some(cat_id) => Some(arena.lookup(cat_id).unwrap()),
+            None => None,
         }
     }
 
@@ -119,7 +119,7 @@ impl Limit {
                 Limit::PerCategory(dict) => {
                     writeln!(f, "[{}]", kind_str)?;
                     for (cat, x) in dict {
-                        write_pair(f, cat.to_str(&arena), x)?;
+                        write_pair(f, cat.to_str(&arena).unwrap_or("_"), x)?;
                     }
                 }
             }
@@ -188,7 +188,7 @@ impl LimitsEntry {
                 f,
                 ":[{}/{}]",
                 self.kind.to_str(&arena),
-                self.category.to_str(&arena)
+                self.category.to_str(&arena).unwrap_or("_")
             )
         })
     }

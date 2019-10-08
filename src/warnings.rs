@@ -122,6 +122,9 @@ impl CountsTowardsLimit {
             if let Some(desc_str) = self.description.to_str(&arena) {
                 write!(f, ": {}", desc_str)?;
             }
+            if let Some(cat_str) = self.category.to_str(&arena) {
+                write!(f, " [{}]", cat_str)?;
+            }
             Ok(())
         })
     }
