@@ -112,8 +112,8 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         )
         .arg(
             Arg::with_name("prune_limits")
-                .long("prune-limits")
-                .help("Also aggressively prune Limits.toml files to more minimal forms.")
+                .long("prune")
+                .help("Also aggressively prune Limits.toml files to more minimal forms (requires --update-limits).")
                 .requires("update_limits")
                 .takes_value(false),
         )

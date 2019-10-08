@@ -63,7 +63,7 @@ project
 │   │   ├── source.c
 │   │   ├── interface.h
 │   │   └── utility.py
-│   └── component_c
+│   └── component_b
 │       ├── Limits.toml
 │       ├── rustmodule.rs
 │       └── glue.c
@@ -72,23 +72,54 @@ project
     └── lint.log
 ```
 
+## Pruning
+
+The tool can automatically update/lower and prune your `Limits.toml` files.
+When you have zero warnings, with the flag `--update-limits` the following limits:
+```toml
+[gcc]
+-Wpedantic = 3
+-Wcomment = 3
+-Wunused-variable = 2
+```
+turns into
+```toml
+[gcc]
+-Wpedantic = 0
+-Wcomment = 0
+-Wunused-variable = 0
+```
+*Note*: `--update-limits` does not touch limits set to `inf`.
+
+With the addition of `--prune`, the above limits are reduced to
+```toml
+gcc = 0
+```
+*Note*: `--prune` also does not touch limits set to `inf`.
+
+It is strongly recommended to have a automated recurring task which runs `wcnt --update-limits [--prune]` and commits
+the results into your repository, so you can ensure that the limits are indeed lowered over time.
+
 ## Output from --help
 ```plain
 $ wcnt --help
-Warning Counter (wcnt) 0.1.0
+Warning Counter (wcnt) 0.2.0
 Mikael Silvén <mikael@silven.nu>
-A program to count your warnings inside log files and comparing them against defined thresholds.
+A program to count your warnings inside log files and comparing them against defined limits.
 
 USAGE:
     wcnt.exe [FLAGS] [OPTIONS]
 
 FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
-    -v               Be more verbose. (Add more for more)
+    -h, --help             Prints help information
+        --prune            Also aggressively prune Limits.toml files to more minimal forms (requires --update-limits).
+        --update-limits    Update the Limit.toml files with lower values if no violations were found.
+    -V, --version          Prints version information
+    -v                     Be more verbose. (Add more for more)
 
 OPTIONS:
         --config <Wcnt.toml>    Use this config file. (Instead of <start>/Wcnt.toml)
         --start <DIR>           Start search in this directory (instead of cwd)
+
 ```
 
