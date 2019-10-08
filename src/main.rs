@@ -66,6 +66,7 @@ struct Arguments {
     verbosity: u64,
     update_limits: bool,
     prune_limits: bool,
+    print_all: bool
 }
 
 impl Arguments {
@@ -105,6 +106,11 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .help("Be more verbose. (Add more for more)"),
         )
         .arg(
+            Arg::with_name("print_all")
+                .long("all")
+                .help("Also print non-violating warnings. (if verbose or very very verbose)"),
+        )
+        .arg(
             Arg::with_name("update_limits")
                 .long("update-limits")
                 .help("Update the Limit.toml files with lower values if no violations were found.")
@@ -136,6 +142,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         start_dir: start_dir,
         config_file: config_file,
         verbosity: verbosity,
+        print_all: matches.is_present("print_all"),
         update_limits: matches.is_present("update_limits"),
         prune_limits: matches.is_present("prune_limits"),
     })
@@ -182,13 +189,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Finally, check the results and report any violations
     let tally = check_warnings_against_thresholds(&flat_limits, &results);
     let violations = tally.violations();
+    if args.print_all {
+        report_tally_results(
+            &args,
+            &settings.string_arena,
+            &results,
+            &tally.non_violations(),
+        );
+    }
+
     if !violations.is_empty() {
-        report_violations(
-            args,
+        report_tally_results(
+            &args,
             &settings.string_arena,
             &results,
             &violations,
-            &tally.non_violations(),
         );
         eprintln!(
             "Found {} violations against specified limits.",
@@ -295,23 +310,17 @@ fn collect_file_results(
 
 /// Print the found [EntryCount](struct.EntryCount.html)s based on the verbosity level found in
 /// [Arguments](struct.Arguments.html)
-fn report_violations(
-    args: Arguments,
+fn report_tally_results(
+    args: &Arguments,
     arena: &SearchableArena,
     results: &HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
-    violations: &[EntryCount],
-    non_violations: &[EntryCount],
+    tally: &[EntryCount],
 ) {
-    if args.is_very_verbose() {
-        for entry in non_violations {
-            println!("{}", entry.display(&arena));
-        }
-    }
     if args.is_verbose() {
-        for v in violations {
-            println!("{}", v.display(&arena));
+        for counted_entry in tally {
+            println!("{}", counted_entry.display(&arena));
             if args.is_very_verbose() {
-                let warnings = results.get(v.entry()).expect("Got the key from here..");
+                let warnings = results.get(counted_entry.entry()).expect("Got the key from here..");
                 let mut warnings_vec: Vec<&CountsTowardsLimit> = Vec::with_capacity(warnings.len());
                 warnings_vec.extend(warnings.iter());
                 warnings_vec.sort();
