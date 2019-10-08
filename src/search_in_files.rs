@@ -134,7 +134,8 @@ fn build_regex_searcher(
             Some(desc_str) => Description::new(result.string_arena.get_or_insert(desc_str)),
             None => Description::none(),
         };
-        let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category.clone());
+        let category_to_match = if limits_file.is_some() { category.clone() } else { Category::none() };
+        let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category_to_match);
         let warning = CountsTowardsLimit::new(
             culprit_file,
             line,
