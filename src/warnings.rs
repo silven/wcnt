@@ -134,7 +134,7 @@ impl CountsTowardsLimit {
 pub(crate) struct EntryCount<'entry> {
     entry: &'entry LimitsEntry,
     limit: Option<u64>,
-    actual: u64,
+    pub(crate) actual: u64,
 }
 
 impl<'entry> EntryCount<'entry> {

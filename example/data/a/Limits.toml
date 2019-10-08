@@ -1,3 +1,4 @@
 [gcc]
 -Wpedantic = 100
 -Wbad-code = 123
+_ = 1

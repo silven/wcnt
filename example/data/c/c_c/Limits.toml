@@ -1,3 +1,5 @@
+flake8 = 120
+
 [gcc]
--Wbad-code = inf
-_ = 2
+-Wbad-code = 100
+_ = 100

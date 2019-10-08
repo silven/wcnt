@@ -64,6 +64,7 @@ struct Arguments {
     start_dir: PathBuf,
     config_file: PathBuf,
     verbosity: u64,
+    update_limits: bool,
 }
 
 impl Arguments {
@@ -102,6 +103,12 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .multiple(true)
                 .help("Be more verbose. (Add more for more)"),
         )
+        .arg(
+            Arg::with_name("update_limits")
+                .long("update-limits")
+                .help("Update the Limit.toml files with lower values if no violations were found.")
+                .takes_value(false),
+        )
         .get_matches();
 
     let cwd = std::env::current_dir()?;
@@ -121,6 +128,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         start_dir: start_dir,
         config_file: config_file,
         verbosity: verbosity,
+        update_limits: matches.is_present("update_limits"),
     })
 }
 
@@ -180,8 +188,33 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
         std::process::exit(1);
     } else {
+        if args.update_limits {
+            update_limits(&settings, &limits, &tally)?;
+        }
         Ok(())
     }
+}
+
+/// Update `Limits.toml` files with new, lower limits.
+fn update_limits(settings: &Settings, limits: &HashMap<PathBuf, LimitsFile>, tally: &FinalTally) -> Result<(), Box<dyn Error>>{
+    let mut updated = HashSet::new();
+    let mut limits_copy: HashMap<PathBuf, LimitsFile> = limits.clone();
+
+    for entry_count in tally.non_violations() {
+        let entry = entry_count.entry();
+        if let Some(limits_path) = &entry.limits_file {
+            let limit_file = limits_copy.get_mut(limits_path).expect("No such limits file?");
+            limit_file.update_limits(&entry_count);
+            updated.insert(limits_path);
+        }
+    }
+    for path in updated {
+        let limit_file = limits_copy.get(path).expect("Did not find copy?");
+        let as_string = toml::to_string(&limit_file.as_serializable(&settings.string_arena))?;
+        println!("Updating `{}`", path.display());
+        std::fs::write(path, as_string)?;
+    }
+    Ok(())
 }
 
 

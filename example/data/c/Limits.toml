@@ -1,2 +1,2 @@
-gcc = 0
-rust = 1
+gcc = 100
+rust = 100

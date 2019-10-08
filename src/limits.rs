@@ -6,12 +6,13 @@ use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 
 use id_arena::Id;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use toml;
 
 use crate::settings::Kind;
 use crate::utils;
 use crate::utils::SearchableArena;
+use crate::warnings::EntryCount;
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Clone)]
 /// A Category represents a specific type of warning, hierarchically below a [Kind](../settings/struct.Kind.html).
@@ -56,6 +57,7 @@ impl Category {
 
 /// A LimitsFile declares a [Limit](struct.Limit.html) for a [Kind](../settings/struct.Kind.html) as a threshold
 /// of number of warnings allowed.
+#[derive(Clone)]
 pub(crate) struct LimitsFile {
     inner: HashMap<Kind, Limit>,
 }
@@ -70,72 +72,94 @@ impl LimitsFile {
         self.inner.get(kind)
     }
 
+    pub(crate) fn as_serializable(&self, arena: &SearchableArena) -> impl Serialize {
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum IntOrFloat {
+            I(u64),
+            F(f32),
+        }
+
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum RawLimitEntry {
+            Number(IntOrFloat),
+            PerCategory(HashMap<String, IntOrFloat>),
+        }
+
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum Inner {
+            #[serde(serialize_with = "toml::ser::tables_last")]
+            V(HashMap<String, RawLimitEntry>)
+        }
+
+        let mut as_map = HashMap::new();
+        for (kind, val) in &self.inner {
+            let raw_val = match val {
+                Limit::Number(Some(x)) => RawLimitEntry::Number(IntOrFloat::I(*x)),
+                Limit::Number(None) => RawLimitEntry::Number(IntOrFloat::F(std::f32::INFINITY)),
+                Limit::PerCategory(dict) => {
+                    let mut cat_dict = HashMap::new();
+                    for (cat, val) in dict {
+                        let limit = match val {
+                            Some(x) => IntOrFloat::I(*x),
+                            None => IntOrFloat::F(std::f32::INFINITY),
+                        };
+                        cat_dict.insert(cat.to_str(&arena).unwrap_or("_").to_owned(), limit);
+                    }
+                    RawLimitEntry::PerCategory(cat_dict)
+                },
+            };
+            as_map.insert(kind.to_str(&arena).to_owned(), raw_val);
+        }
+        Inner::V(as_map)
+    }
+
     pub fn display<'me, 'arena: 'me>(
         &'me self,
         arena: &'arena SearchableArena,
     ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
-            writeln!(f, "LimitsFile {{")?;
-            for (kind, limit) in self.inner.iter().filter(|(_, l)| l.is_simple()) {
-                write!(f, "{}", limit.display(kind, arena))?;
-            }
-            for (kind, limit) in self.inner.iter().filter(|(_, l)| !l.is_simple()) {
-                write!(f, "\n{}", limit.display(kind, arena))?;
-            }
-            write!(f, "}}")
+            let as_string = toml::ser::to_string(&self.as_serializable(&arena))
+                .map_err(|e| {
+                    eprintln!("Could not display LimitsFile: `{}`", e);
+                    std::fmt::Error
+                })?;
+            write!(f, "{}", as_string)
         })
+    }
+
+    pub fn update_limits(&mut self, updated_count: &EntryCount) {
+        let limit = self.inner
+            .get_mut(&updated_count.entry().kind)
+            .expect("Kind not found in LimitsFile!");
+        let actual = updated_count.actual;
+        match limit {
+            Limit::Number(Some(x)) => *x = actual,
+            Limit::Number(None) => { /* inf limit, do nothing */ }
+            Limit::PerCategory(per_cat) => {
+                let inner_limit = per_cat.get_mut(&updated_count.entry().category);
+                if let Some(maybe_limit) = inner_limit {
+                    match maybe_limit {
+                        Some(x) => *x = actual,
+                        None => { /* inf limit, do nothing*/ },
+                    }
+                } else {
+                    panic!("We got a warning for a category that we don't have?");
+                }
+            }
+        }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 /// A Limit can either be a single number, which should hold for any [Category](struct.Category.html)
 /// of warnings for that [Kind](../settings/struct.Kind.html), or be declared per category.
 /// A limit may also be "infinity", represented by None.
 pub(crate) enum Limit {
     Number(Option<u64>),
     PerCategory(HashMap<Category, Option<u64>>),
-}
-
-impl Limit {
-    fn is_simple(&self) -> bool {
-        match self {
-            Limit::Number(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn display<'me, 'arena: 'me, 'kind: 'me>(
-        &'me self,
-        kind: &'kind Kind,
-        arena: &'arena SearchableArena,
-    ) -> impl Display + 'me {
-        utils::fmt_helper(move |f| {
-            fn write_pair(
-                f: &mut std::fmt::Formatter<'_>,
-                key: &str,
-                value: &Option<u64>,
-            ) -> std::fmt::Result {
-                match value {
-                    Some(number) => writeln!(f, "{} = {}", key, number),
-                    None => writeln!(f, "{} = inf", key),
-                }
-            }
-
-            let kind_str = kind.to_str(&arena);
-            match self {
-                Limit::Number(x) => {
-                    write_pair(f, kind_str, x)?;
-                }
-                Limit::PerCategory(dict) => {
-                    writeln!(f, "[{}]", kind_str)?;
-                    for (cat, x) in dict {
-                        write_pair(f, cat.to_str(&arena).unwrap_or("_"), x)?;
-                    }
-                }
-            }
-            Ok(())
-        })
-    }
 }
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Debug, Clone, Hash)]
@@ -360,7 +384,7 @@ mod test {
         "#;
 
         let mut arena = SearchableArena::new();
-        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        arena.insert("gcc".to_owned());
         let categorizable = HashSet::new();
         parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
     }
