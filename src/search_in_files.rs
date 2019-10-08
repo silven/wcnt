@@ -134,7 +134,11 @@ fn build_regex_searcher(
             Some(desc_str) => Description::new(result.string_arena.get_or_insert(desc_str)),
             None => Description::none(),
         };
-        let category_to_match = if limits_file.is_some() { category.clone() } else { Category::none() };
+        let category_to_match = if limits_file.is_some() {
+            category.clone()
+        } else {
+            Category::none()
+        };
         let limits_entry = LimitsEntry::new(limits_file, kind.clone(), category_to_match);
         let warning = CountsTowardsLimit::new(
             culprit_file,
@@ -157,7 +161,7 @@ fn build_regex_searcher(
 /// Every warning originates at a "culprit" file. These files are located under a Limits.toml file
 /// in the file system tree. `find_limits_for` finds the Limits.toml file "responsible" for the
 /// culprit, so we know which [limits](../limits/enum.Limit.html) to use. Returns `None` if no
-/// such file was found, and we should fallback to the kind default.
+/// such file was found, and we default to zero.
 /// IMPORTANT NOTE: When run under Linux, `culprit_file` *must not* include \ -characters, because
 /// of how Rust doesn't treat them as path separators. `build_regex_searcher` does a string replace
 /// operation before calling this function, so it shouldn't be a problem in real world scenarios.

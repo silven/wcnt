@@ -6,17 +6,14 @@ The kinds of warnings are defined in `Wcnt.toml` which should be located at the 
 Limits are defined in `Limits.toml` which are then valid for source files in that tree of directories
 on the file system. You can have multiple `Limits.toml` files and place them where you see fit. Perhaps one
 per component, or subsystem, whichever fits your project the best. If the system does not find a `Limits.toml` file
-when searching for a set limit, it will fallback to any `default` defined in the `Wcnt.toml` file, which defaults 
-to zero.
+when searching for a set limit, it will use 0 for a limit, so be sure you specify your limits!
 
 ## Example Wcnt.toml
-Below follows an example `Wcnt.toml` file, defining rules for the two kinds `gcc` and `flake8`. `gcc` warnings 
-additionally gets assigned a default limit of 3. When defining a default you can only use a whole positive number.
+Below follows an example `Wcnt.toml` file, defining rules for the two kinds `gcc` and `flake8`.
 ```toml
 [gcc]
 regex = "^(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+): warning: (?P<description>.+) \\[(?P<category>.+)\\]"
 files = ["**/compilation.log", "**/build.log"]
-default = 3
 
 [flake8]
 regex = "^(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+): (?P<category>[^\\s]+) (?P<description>.+)$"
@@ -34,7 +31,7 @@ multiples of the same warning. The `category` key also allows you to define indi
 Below follows an example `Limits.toml` file where `flake8` warnings are capped at 300, and `gcc` warnings are separated
 into a few different categories. You can use `inf` to allow any number of warnings, and `_` is the wildcard category.
 It matches any category you have not already defined. When using per-category limits, it's always wise to include the
-wildcard category, otherwise the `default` for that kind will be used, as defined in `Wcnt.toml`.  
+wildcard category, otherwise the limit is zero.
  
 ```toml
 flake8 = 300 

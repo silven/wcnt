@@ -92,7 +92,7 @@ impl LimitsFile {
         #[serde(untagged)]
         enum Inner {
             #[serde(serialize_with = "toml::ser::tables_last")]
-            V(LinkedHashMap<String, RawLimitEntry>)
+            V(LinkedHashMap<String, RawLimitEntry>),
         }
 
         let mut as_map = LinkedHashMap::new();
@@ -110,7 +110,7 @@ impl LimitsFile {
                         cat_dict.insert(cat.to_str(&arena).unwrap_or("_").to_owned(), limit);
                     }
                     RawLimitEntry::PerCategory(cat_dict)
-                },
+                }
             };
             as_map.insert(kind.to_str(&arena).to_owned(), raw_val);
         }
@@ -122,11 +122,10 @@ impl LimitsFile {
         arena: &'arena SearchableArena,
     ) -> impl Display + 'me {
         utils::fmt_helper(move |f| {
-            let as_string = toml::ser::to_string(&self.as_serializable(&arena))
-                .map_err(|e| {
-                    eprintln!("Could not display LimitsFile: `{}`", e);
-                    std::fmt::Error
-                })?;
+            let as_string = toml::ser::to_string(&self.as_serializable(&arena)).map_err(|e| {
+                eprintln!("Could not display LimitsFile: `{}`", e);
+                std::fmt::Error
+            })?;
             write!(f, "{}", as_string)
         })
     }
@@ -140,7 +139,7 @@ impl LimitsFile {
                     for (_cat, inner_limit) in per_cat.iter_mut() {
                         match inner_limit {
                             Some(x) => *x = 0,
-                            None => { /* inf limit, do nothing*/ },
+                            None => { /* inf limit, do nothing*/ }
                         }
                     }
                 }
@@ -148,8 +147,44 @@ impl LimitsFile {
         }
     }
 
+    pub fn prune_empty(&mut self) {
+        enum PruneResult<'a> {
+            AllZero,
+            OnlyOne(&'a Option<u64>),
+            StillSomeLeft,
+        }
+
+        for (_kind, limit) in self.inner.iter_mut() {
+            let prune_result = if let Limit::PerCategory(per_cat) = limit {
+                *per_cat = per_cat
+                    .into_iter()
+                    .filter(|(_cat, val)| !val.contains(&0))
+                    .map(|(cat, val)| (cat.clone(), val.clone()))
+                    .collect::<LinkedHashMap<Category, Option<u64>>>();
+                if per_cat.is_empty() {
+                    PruneResult::AllZero
+                } else if per_cat.len() == 1 {
+                    PruneResult::OnlyOne(per_cat.values().next().unwrap())
+                } else {
+                    PruneResult::StillSomeLeft
+                }
+            } else {
+                PruneResult::StillSomeLeft
+            };
+
+            match prune_result {
+                PruneResult::AllZero => {
+                    *limit = Limit::Number(Some(0));
+                }
+                PruneResult::OnlyOne(value) => *limit = Limit::Number(value.clone()),
+                PruneResult::StillSomeLeft => { /* do nothing */ }
+            }
+        }
+    }
+
     pub fn update_limits(&mut self, updated_count: &EntryCount) {
-        let limit = self.inner
+        let limit = self
+            .inner
             .get_mut(&updated_count.entry().kind)
             .expect("Kind not found in LimitsFile!");
         let actual = updated_count.actual;
@@ -161,7 +196,7 @@ impl LimitsFile {
                 if let Some(maybe_limit) = inner_limit {
                     match maybe_limit {
                         Some(x) => *x = actual,
-                        None => { /* inf limit, do nothing*/ },
+                        None => { /* inf limit, do nothing*/ }
                     }
                 } else {
                     panic!("We got a warning for a category that we don't have?");
@@ -378,7 +413,8 @@ mod test {
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let mut categorizable = HashSet::new();
         categorizable.insert(gcc_kind.clone());
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+        let limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-Wpedantic").expect("pedantic"));
@@ -393,7 +429,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected="`gcc` is not categorizable")]
+    #[should_panic(expected = "`gcc` is not categorizable")]
     fn cannot_deserialize_without_being_categorizable() {
         let limits_str = r#"
         [gcc]
@@ -419,7 +455,8 @@ mod test {
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let mut categorizable = HashSet::new();
         categorizable.insert(gcc_kind.clone());
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+        let limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let expected_mapping: LinkedHashMap<Category, Option<u64>> =
@@ -444,7 +481,8 @@ mod test {
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let mut categorizable = HashSet::new();
         categorizable.insert(gcc_kind.clone());
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+        let limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let expected_mapping: LinkedHashMap<Category, Option<u64>> =
@@ -470,7 +508,8 @@ mod test {
         let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
         let mut categorizable = HashSet::new();
         categorizable.insert(gcc_kind.clone());
-        let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+        let limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let expected_mapping: LinkedHashMap<Category, Option<u64>> =
@@ -480,6 +519,80 @@ mod test {
         assert_eq!(
             limits.get_limit(&gcc_kind),
             Some(&Limit::PerCategory(expected_mapping))
+        );
+    }
+
+    #[test]
+    fn prune_only_one_into_simple_limit() {
+        let limits_str = r#"
+        [gcc]
+        stuff = 0
+        _ = 1
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let mut limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+
+        limits.prune_empty();
+
+        assert_eq!(
+            "gcc = 1\n",
+            toml::ser::to_string(&limits.as_serializable(&arena)).expect("Deserialize")
+        );
+    }
+
+    #[test]
+    fn prune_remove_zero_categories() {
+        let limits_str = r#"
+        [gcc]
+        stuff = 1
+        more-stuff = 0
+        _ = 1
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let mut limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+
+        limits.prune_empty();
+
+        assert_eq!(
+            r#"[gcc]
+stuff = 1
+_ = 1
+"#,
+            toml::ser::to_string(&limits.as_serializable(&arena)).expect("Deserialize")
+        );
+    }
+
+    #[test]
+    fn prune_turn_all_zero_into_simple() {
+        let limits_str = r#"
+        [gcc]
+        stuff = 0
+        more-stuff = 0
+        "#;
+
+        let mut arena = SearchableArena::new();
+        let gcc_kind = Kind::new(arena.insert("gcc".to_owned()));
+        let mut categorizable = HashSet::new();
+        categorizable.insert(gcc_kind.clone());
+        let mut limits =
+            parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
+
+        limits.prune_empty();
+
+        assert_eq!(
+            r#"gcc = 0
+"#,
+            toml::ser::to_string(&limits.as_serializable(&arena)).expect("Deserialize")
         );
     }
 }

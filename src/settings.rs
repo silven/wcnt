@@ -1,7 +1,7 @@
 //! Module responsible for structures and functions related to the Wcnt.toml settings file.
 //! This settings file declares all [Kind](struct.Kind.html)s of warnings we are interested in.
 //! For every Kind, we need a regular expression matching the warning, and a list of glob patterns
-//! to know which log files we should search through. Optionally a default limit might be set.
+//! to know which log files we should search through.
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -63,7 +63,6 @@ impl Settings {
                 writeln!(f, "[{}]", kind.to_str(&self.string_arena))?;
                 writeln!(f, "regex = {:?}", field.regex)?;
                 writeln!(f, "files = [{}]", field.files.join(", "))?;
-                writeln!(f, "default = {}", field.default.unwrap_or(0))?;
             }
             write!(f, "}}")
         })
@@ -76,7 +75,6 @@ impl Settings {
 pub(crate) struct SettingsField {
     pub(crate) regex: Regex,
     pub(crate) files: Vec<String>,
-    pub(crate) default: Option<u64>,
     categorizable: bool,
 }
 
@@ -118,7 +116,6 @@ impl<'de> Deserialize<'de> for SettingsField {
             #[serde(borrow)]
             regex: Cow<'input, str>,
             files: Vec<String>,
-            default: Option<u64>,
         }
 
         let raw = RawSettings::deserialize(deserializer)?;
@@ -135,7 +132,6 @@ impl<'de> Deserialize<'de> for SettingsField {
         Ok(SettingsField {
             regex: as_regex,
             files: raw.files,
-            default: raw.default,
             categorizable: categorizable,
         })
     }

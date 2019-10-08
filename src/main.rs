@@ -1,4 +1,5 @@
 #![deny(intra_doc_link_resolution_failure)]
+#![feature(option_result_contains)]
 //! wcnt (Warning Counter) is a small command line tool to count warnings in files, and map them
 //! to declared limits. It may then return an error code if any limit is breached.
 //!
@@ -65,6 +66,7 @@ struct Arguments {
     config_file: PathBuf,
     verbosity: u64,
     update_limits: bool,
+    prune_limits: bool,
 }
 
 impl Arguments {
@@ -109,6 +111,13 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .help("Update the Limit.toml files with lower values if no violations were found.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("prune_limits")
+                .long("prune-limits")
+                .help("Also aggressively prune Limits.toml files to more minimal forms.")
+                .requires("update_limits")
+                .takes_value(false),
+        )
         .get_matches();
 
     let cwd = std::env::current_dir()?;
@@ -129,6 +138,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         config_file: config_file,
         verbosity: verbosity,
         update_limits: matches.is_present("update_limits"),
+        prune_limits: matches.is_present("prune_limits"),
     })
 }
 
@@ -146,7 +156,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let globset = construct_types_info(&settings)?;
     let categorizables = settings.categorizables();
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
-    let (log_files, limits) = collect_file_results(&mut settings.string_arena, &categorizables, rx)?;
+    let (log_files, limits) =
+        collect_file_results(&mut settings.string_arena, &categorizables, rx)?;
 
     for (path, limits_file) in &limits {
         debug!("Found Limits.toml file at `{}`", path.display());
@@ -166,13 +177,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
     let results_tmp = gather_results_from_logs(&mut settings.string_arena, rx);
     let flat_limits = flatten_limits(&limits);
-    let defaults: HashMap<&Kind, Option<u64>> =
-        settings.iter().map(|(k, sf)| (k, sf.default)).collect();
 
     let results = remap_to_actual_limit_entries(&flat_limits, results_tmp);
 
     // Finally, check the results and report any violations
-    let tally = check_warnings_against_thresholds(&flat_limits, &results, &defaults);
+    let tally = check_warnings_against_thresholds(&flat_limits, &results);
     let violations = tally.violations();
     if !violations.is_empty() {
         report_violations(
@@ -189,14 +198,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::process::exit(1);
     } else {
         if args.update_limits {
-            update_limits(&settings, &limits, &tally)?;
+            update_limits(&settings, &limits, &tally, args.prune_limits)?;
         }
         Ok(())
     }
 }
 
 /// Update `Limits.toml` files with new, lower limits.
-fn update_limits(settings: &Settings, limits: &HashMap<PathBuf, LimitsFile>, tally: &FinalTally) -> Result<(), Box<dyn Error>>{
+fn update_limits(
+    settings: &Settings,
+    limits: &HashMap<PathBuf, LimitsFile>,
+    tally: &FinalTally,
+    aggressive_pruning: bool,
+) -> Result<(), Box<dyn Error>> {
     let mut updated = HashSet::new();
     let mut limits_copy: HashMap<PathBuf, LimitsFile> = limits.clone();
     for lf in limits_copy.values_mut() {
@@ -208,11 +222,20 @@ fn update_limits(settings: &Settings, limits: &HashMap<PathBuf, LimitsFile>, tal
         if let Some(limits_path) = &entry.limits_file {
             let limit_file = limits_copy.get_mut(limits_path).expect("Infallible lookup");
             limit_file.update_limits(&entry_count);
-            if limit_file != limits.get(limits_path).expect("Infallible lookup") {
-                updated.insert(limits_path);
-            }
         }
     }
+    if aggressive_pruning {
+        for lf in limits_copy.values_mut() {
+            lf.prune_empty();
+        }
+    }
+
+    for (path, file) in &limits_copy {
+        if file != limits.get(path).expect("Infallible lookup") {
+            updated.insert(path);
+        }
+    }
+
     for path in updated {
         let limit_file = limits_copy.get(path).expect("Did not find copy?");
         let as_string = toml::to_string(&limit_file.as_serializable(&settings.string_arena))?;
@@ -221,7 +244,6 @@ fn update_limits(settings: &Settings, limits: &HashMap<PathBuf, LimitsFile>, tal
     }
     Ok(())
 }
-
 
 /// Because the LimitEntries from the warnings use the category from the warning pass, it might
 /// always map to an actual user defined warning. This pass lookup the actual warnings and ensure
@@ -237,10 +259,8 @@ fn remap_to_actual_limit_entries(
             limit
         } else if defined_limits.contains_key(&limit.without_category()) {
             limit.without_category()
-        }  else {
-            // This is a default, we should probably handle this better
-            limit
-            //panic!("Did not find an appropriate entry inside {:?} for {:?}", defined_limits, limit);
+        } else {
+            panic!("Did not find an appropriate entry inside {:?} for {:?}", defined_limits, limit);
         };
 
         result
@@ -365,17 +385,13 @@ fn process_search_results(
 fn check_warnings_against_thresholds<'entries, 'x>(
     flat_limits: &'x HashMap<LimitsEntry, Option<u64>>,
     results: &'entries HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
-    defaults: &HashMap<&Kind, Option<u64>>,
 ) -> FinalTally<'entries> {
     let mut tally = FinalTally::new(results.len());
     for (limits_entry, warnings) in results {
         let num_warnings = warnings.len() as u64;
         let threshold = match flat_limits.get(&limits_entry) {
             Some(x) => *x,
-            None => defaults
-                .get(&limits_entry.kind)
-                .expect("We cannot have detected a warning for a kind we have no settings for.")
-                .or(Some(0)),
+            None => Some(0),
         };
         tally.add(EntryCount::new(limits_entry, threshold, num_warnings));
     }
@@ -489,23 +505,22 @@ mod test {
         let category_header2 = Category::new(second_arena.insert("-Wbad-interface".to_owned()));
         let desc_header2 = Description::new(second_arena.insert("Bad interface".to_owned()));
 
-
         let code_limit_entry = LimitsEntry::new(
             Some("/tmp/Limits.toml".as_ref()),
             kind.clone(),
-            category_code1.clone()
+            category_code1.clone(),
         );
 
         let header_limit_entry1 = LimitsEntry::new(
             Some("/tmp/Limits.toml".as_ref()),
             kind.clone(),
-            category_header1.clone()
+            category_header1.clone(),
         );
 
         let header_limit_entry2 = LimitsEntry::new(
             Some("/tmp/Limits.toml".as_ref()),
             kind.clone(),
-            category_header2.clone()
+            category_header2.clone(),
         );
 
         // Code warning appears only in first search result
@@ -573,7 +588,7 @@ mod test {
         let main_category_code = Category::new(main_arena.get_id("-Wbad-code").unwrap());
         let main_category_header = Category::new(main_arena.get_id("-Wbad-interface").unwrap());
         let main_desc_code = Description::new(main_arena.get_id("Bad code").unwrap());
-        let main_desc_interface  = Description::new(main_arena.get_id("Bad interface").unwrap());
+        let main_desc_interface = Description::new(main_arena.get_id("Bad interface").unwrap());
 
         let expected_code_warning = CountsTowardsLimit::new(
             PathBuf::from("/tmp/src/code.c"),
@@ -617,12 +632,13 @@ mod test {
             .extend(vec![expected_interface_warning.clone()]);
         assert_eq!(expected_result, results);
 
-
-        let defined_limit_entry = LimitsEntry::new(Some("/tmp/Limits.toml".as_ref()), kind.clone(), Category::none());
+        let defined_limit_entry = LimitsEntry::new(
+            Some("/tmp/Limits.toml".as_ref()),
+            kind.clone(),
+            Category::none(),
+        );
         let mut defined_limits = HashMap::new();
-        defined_limits.insert(
-            defined_limit_entry.clone(),
-            Some(1));
+        defined_limits.insert(defined_limit_entry.clone(), Some(1));
         let processed_results = remap_to_actual_limit_entries(&defined_limits, results);
         assert_ne!(expected_result, processed_results);
 

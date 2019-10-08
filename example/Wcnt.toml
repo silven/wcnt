@@ -5,7 +5,6 @@ files = ["**/foo.log", "**/bar.log"]
 [rust]
 regex = "^warning: (?P<description>.+)\n\\s+-->\\s(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+)$"
 files = ["**/foo.log"]
-default = 5
 
 [flake8]
 regex = "^(?P<file>[^:]+):(?P<line>\\d+):(?P<column>\\d+): (?P<category>[^\\s]+) (?P<description>.+)$"
