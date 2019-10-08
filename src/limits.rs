@@ -147,7 +147,7 @@ impl LimitsFile {
         }
     }
 
-    pub fn prune_empty(&mut self) {
+    pub fn prune_categories(&mut self) {
         enum PruneResult<'a> {
             AllZero,
             OnlyOne(&'a Option<u64>),
@@ -156,9 +156,11 @@ impl LimitsFile {
 
         for (_kind, limit) in self.inner.iter_mut() {
             let prune_result = if let Limit::PerCategory(per_cat) = limit {
+                // LinkedHashMap doesn't have retain() :'(
                 *per_cat = per_cat
                     .into_iter()
-                    .filter(|(_cat, val)| !val.contains(&0))
+                    // Checks if the contained value is zero, Option::contains is not stable yet.
+                    .filter(|(_cat, val)| !(val.is_some() && val.unwrap() == 0))
                     .map(|(cat, val)| (cat.clone(), val.clone()))
                     .collect::<LinkedHashMap<Category, Option<u64>>>();
                 if per_cat.is_empty() {
@@ -537,7 +539,7 @@ mod test {
         let mut limits =
             parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
-        limits.prune_empty();
+        limits.prune_categories();
 
         assert_eq!(
             "gcc = 1\n",
@@ -561,7 +563,7 @@ mod test {
         let mut limits =
             parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
-        limits.prune_empty();
+        limits.prune_categories();
 
         assert_eq!(
             r#"[gcc]
@@ -587,7 +589,7 @@ _ = 1
         let mut limits =
             parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
-        limits.prune_empty();
+        limits.prune_categories();
 
         assert_eq!(
             r#"gcc = 0

@@ -1,5 +1,4 @@
 #![deny(intra_doc_link_resolution_failure)]
-#![feature(option_result_contains)]
 //! wcnt (Warning Counter) is a small command line tool to count warnings in files, and map them
 //! to declared limits. It may then return an error code if any limit is breached.
 //!
@@ -226,7 +225,7 @@ fn update_limits(
     }
     if aggressive_pruning {
         for lf in limits_copy.values_mut() {
-            lf.prune_empty();
+            lf.prune_categories();
         }
     }
 
