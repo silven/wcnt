@@ -1,6 +1,6 @@
 # Readme
 Warning Counter (wcnt) is a small command line utility to count the number of warnings in log files, and compare them to
-defined limits. 
+defined limits.
 
 The kinds of warnings are defined in `Wcnt.toml` which should be located at the root of your project.
 Limits are defined in `Limits.toml` which are then valid for source files in that tree of directories
@@ -25,14 +25,17 @@ Required settings for each are `regex` and `files`. The `regex` value *must* def
 which file was responsible for each particular warning, and thus, which `Limits.toml` should be used. 
 
 The capture groups `line`, `column`, `category` and `description` are optional and allows the system to disregard
-multiples of the same warning. The `category` key also allows you to define individual limits for different categories. 
+multiples of the same warning. The `category` key also allows you to define individual limits for different categories.
+
+In order to be able to use per catgory limits, your regex *must* define a `category` capture group. Otherwise the system
+will abort when parsing the `Limits.toml` file. This is to prevent a false sense of security.
 
 ## Example Limits.toml
 Below follows an example `Limits.toml` file where `flake8` warnings are capped at 300, and `gcc` warnings are separated
 into a few different categories. You can use `inf` to allow any number of warnings, and `_` is the wildcard category.
 It matches any category you have not already defined. When using per-category limits, it's always wise to include the
 wildcard category, otherwise the limit is zero.
- 
+
 ```toml
 flake8 = 300 
 
@@ -54,16 +57,25 @@ _ = 1
 ```
 
 ### You can have multiple `Limits.toml` files
+Every warning from a source file are counted towards the `Limits.toml` file that are closest to it going straight up
+file system tree. In the example below, `component_a` and `component_b` share the limits defined in
+`project/src/Limit.toml` while `component_c` has its own limits. This is useful if you have some component that
+should have extra strict, or extra loose rules. Such as a newly developed piece of code, or a [vendored](https://stackoverflow.com/questions/35109393/what-does-vendoring-mean-in-go)
+third party dependency or legacy code.
 ```plain
 project
 ├── Wcnt.toml
-├── Limits.toml
 ├── src
+│   ├── Limits.toml
 │   ├── component_a
 │   │   ├── source.c
 │   │   ├── interface.h
 │   │   └── utility.py
-│   └── component_b
+│   ├── component_b
+│   │   ├── binary.c
+│   │   ├── code.c
+│   │   └── interface.h
+│   └── component_c
 │       ├── Limits.toml
 │       ├── rustmodule.rs
 │       └── glue.c
@@ -73,7 +85,6 @@ project
 ```
 
 ## Pruning
-
 The tool can automatically update/lower and prune your `Limits.toml` files.
 When you have zero warnings, with the flag `--update-limits` the following limits:
 ```toml
@@ -120,6 +131,5 @@ FLAGS:
 OPTIONS:
         --config <Wcnt.toml>    Use this config file. (Instead of <start>/Wcnt.toml)
         --start <DIR>           Start search in this directory (instead of cwd)
-
 ```
 
