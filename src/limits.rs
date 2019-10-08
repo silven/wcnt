@@ -1,11 +1,12 @@
 //! Module responsible for structures and functionality related to Limits and Limit files.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Display;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 
 use id_arena::Id;
+use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 use toml;
 
@@ -59,7 +60,7 @@ impl Category {
 /// of number of warnings allowed.
 #[derive(Clone)]
 pub(crate) struct LimitsFile {
-    inner: HashMap<Kind, Limit>,
+    inner: LinkedHashMap<Kind, Limit>,
 }
 
 impl LimitsFile {
@@ -84,23 +85,23 @@ impl LimitsFile {
         #[serde(untagged)]
         enum RawLimitEntry {
             Number(IntOrFloat),
-            PerCategory(HashMap<String, IntOrFloat>),
+            PerCategory(LinkedHashMap<String, IntOrFloat>),
         }
 
         #[derive(Serialize)]
         #[serde(untagged)]
         enum Inner {
             #[serde(serialize_with = "toml::ser::tables_last")]
-            V(HashMap<String, RawLimitEntry>)
+            V(LinkedHashMap<String, RawLimitEntry>)
         }
 
-        let mut as_map = HashMap::new();
+        let mut as_map = LinkedHashMap::new();
         for (kind, val) in &self.inner {
             let raw_val = match val {
                 Limit::Number(Some(x)) => RawLimitEntry::Number(IntOrFloat::I(*x)),
                 Limit::Number(None) => RawLimitEntry::Number(IntOrFloat::F(std::f32::INFINITY)),
                 Limit::PerCategory(dict) => {
-                    let mut cat_dict = HashMap::new();
+                    let mut cat_dict = LinkedHashMap::new();
                     for (cat, val) in dict {
                         let limit = match val {
                             Some(x) => IntOrFloat::I(*x),
@@ -159,7 +160,7 @@ impl LimitsFile {
 /// A limit may also be "infinity", represented by None.
 pub(crate) enum Limit {
     Number(Option<u64>),
-    PerCategory(HashMap<Category, Option<u64>>),
+    PerCategory(LinkedHashMap<Category, Option<u64>>),
 }
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Debug, Clone, Hash)]
@@ -272,11 +273,11 @@ fn parse_limits_file_from_str(
     enum RawLimitEntry<'input> {
         Number(IntOrFloat),
         #[serde(borrow)]
-        PerCategory(HashMap<&'input str, IntOrFloat>),
+        PerCategory(LinkedHashMap<&'input str, IntOrFloat>),
     }
 
-    let as_raw_dict: HashMap<&str, RawLimitEntry> = toml::from_str(&cfg)?;
-    let mut result = HashMap::new();
+    let as_raw_dict: LinkedHashMap<&str, RawLimitEntry> = toml::from_str(&cfg)?;
+    let mut result = LinkedHashMap::new();
 
     for (key, val) in as_raw_dict.into_iter() {
         let kind_id = arena.get_id(&key).ok_or_else(|| {
@@ -292,7 +293,7 @@ fn parse_limits_file_from_str(
                 if !categorizables.contains(&kind) {
                     return Err(format!("Kind `{}` is not categorizable.", key).into());
                 }
-                let mut per_category = HashMap::new();
+                let mut per_category = LinkedHashMap::new();
                 for (cat_str, x) in dict {
                     let limit = x.to_limit()?;
                     let category = Category::from_str(cat_str, arena);
@@ -364,7 +365,7 @@ mod test {
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
         let cat_pedantic = Category::new(arena.get_id("-Wpedantic").expect("pedantic"));
-        let expected_mapping: HashMap<Category, Option<u64>> =
+        let expected_mapping: LinkedHashMap<Category, Option<u64>> =
             vec![(cat_bad_code, Some(1)), (cat_pedantic, Some(2))]
                 .into_iter()
                 .collect();
@@ -404,7 +405,7 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, Option<u64>> =
+        let expected_mapping: LinkedHashMap<Category, Option<u64>> =
             vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
                 .into_iter()
                 .collect();
@@ -429,7 +430,7 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, Option<u64>> =
+        let expected_mapping: LinkedHashMap<Category, Option<u64>> =
             vec![(cat_bad_code, None), (Category::none(), Some(1))]
                 .into_iter()
                 .collect();
@@ -455,7 +456,7 @@ mod test {
         let limits = parse_limits_file_from_str(&mut arena, &limits_str, &categorizable).expect("parse");
 
         let cat_bad_code = Category::new(arena.get_id("-Wbad-code").expect("bad code"));
-        let expected_mapping: HashMap<Category, Option<u64>> =
+        let expected_mapping: LinkedHashMap<Category, Option<u64>> =
             vec![(cat_bad_code, Some(2)), (Category::none(), Some(1))]
                 .into_iter()
                 .collect();

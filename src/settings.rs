@@ -3,10 +3,11 @@
 //! For every Kind, we need a regular expression matching the warning, and a list of glob patterns
 //! to know which log files we should search through. Optionally a default limit might be set.
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Display;
 
 use id_arena::Id;
+use linked_hash_map::LinkedHashMap;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
 
@@ -33,7 +34,7 @@ impl Kind {
 /// possible.
 pub(crate) struct Settings {
     pub(crate) string_arena: SearchableArena,
-    inner: HashMap<Kind, SettingsField>,
+    inner: LinkedHashMap<Kind, SettingsField>,
 }
 
 impl Settings {
@@ -84,8 +85,8 @@ impl<'de> Deserialize<'de> for Settings {
     where
         D: Deserializer<'de>,
     {
-        let raw = <HashMap<String, SettingsField>>::deserialize(deserializer)?;
-        let mut result = HashMap::new();
+        let raw = <LinkedHashMap<String, SettingsField>>::deserialize(deserializer)?;
+        let mut result = LinkedHashMap::new();
         let mut string_arena = SearchableArena::new();
         for (key, val) in raw.into_iter() {
             let captures: HashSet<&str> = val.regex.capture_names().flatten().collect();

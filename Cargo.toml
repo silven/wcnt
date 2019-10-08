@@ -8,8 +8,10 @@ description = "A program to count your warnings inside log files and comparing t
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# Toml loads our config files
-toml = "0.5"
+# Toml loads reads and writes our config files
+toml = { version = "0.5", features = ["preserve_order"] }
+# To keep the order, we need linked-hash-map
+linked-hash-map = { version = "0.5", features = ["serde_impl"] }
 # Serde helps us deserialize into custom types
 serde = { version = "1.0", features = ["derive"] }
 # Ignore finds our limit files
