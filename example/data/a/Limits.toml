@@ -2,3 +2,11 @@
 -Wpedantic = 100
 -Wbad-code = 123
 _ = 1
+a = 1
+b = 2
+c = 3
+d = 4
+e = 5
+z = 6
+y = 7
+x = 8

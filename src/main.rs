@@ -199,6 +199,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn update_limits(settings: &Settings, limits: &HashMap<PathBuf, LimitsFile>, tally: &FinalTally) -> Result<(), Box<dyn Error>>{
     let mut updated = HashSet::new();
     let mut limits_copy: HashMap<PathBuf, LimitsFile> = limits.clone();
+    for lf in limits_copy.values_mut() {
+        lf.zero();
+    }
 
     for entry_count in tally.non_violations() {
         let entry = entry_count.entry();

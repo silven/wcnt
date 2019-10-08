@@ -131,6 +131,23 @@ impl LimitsFile {
         })
     }
 
+    pub fn zero(&mut self) {
+        for (_kind, limit) in self.inner.iter_mut() {
+            match limit {
+                Limit::Number(Some(x)) => *x = 0,
+                Limit::Number(None) => { /* inf limit, do nothing */ }
+                Limit::PerCategory(per_cat) => {
+                    for (_cat, inner_limit) in per_cat.iter_mut() {
+                        match inner_limit {
+                            Some(x) => *x = 0,
+                            None => { /* inf limit, do nothing*/ },
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn update_limits(&mut self, updated_count: &EntryCount) {
         let limit = self.inner
             .get_mut(&updated_count.entry().kind)
