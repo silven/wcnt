@@ -111,10 +111,17 @@ gcc = 0
 It is strongly recommended to have a automated recurring task which runs `wcnt --update-limits [--prune]` and commits
 the results into your repository, so you can ensure that the limits are indeed lowered over time.
 
+## Partial runs
+In some circumstances, you don't want to (or can't) have all warnings available at once. For example if you compile
+your C code using both GCC and MSVC/XCode. Then you can pass arguments using the  `--only` flag, to run the tool for
+only that or those kinds of warnings. This functionality integrates with `--update-limits` and does not remove
+limits from your `Limits.toml` files. If you have recurring jobs automatically making commits to lower your limits,
+you will have to take care of any merge conflicts yourself.
+
 ## Output from --help
 ```plain
 $ wcnt --help
-Warning Counter (wcnt) 0.2.0
+Warning Counter (wcnt) 0.3.0
 Mikael Silvén <mikael@silven.nu>
 A program to count your warnings inside log files and comparing them against defined limits.
 
@@ -123,13 +130,15 @@ USAGE:
 
 FLAGS:
     -h, --help             Prints help information
-        --prune            Also aggressively prune Limits.toml files to more minimal forms (requires --update-limits).
-        --update-limits    Update the Limit.toml files with lower values if no violations were found.
     -V, --version          Prints version information
+        --all              Also print non-violating warnings. (if verbose or very very verbose)
+        --update-limits    Update the Limit.toml files with lower values if no violations were found.
+        --prune            Also aggressively prune Limits.toml files to more minimal forms (requires --update-limits).
     -v                     Be more verbose. (Add more for more)
 
 OPTIONS:
-        --config <Wcnt.toml>    Use this config file. (Instead of <start>/Wcnt.toml)
+        --only <KIND>...        Run the check only for these kinds of warnings.
         --start <DIR>           Start search in this directory (instead of cwd)
+        --config <Wcnt.toml>    Use this config file. (Instead of <start>/Wcnt.toml)
 ```
 

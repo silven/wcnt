@@ -1,11 +1,9 @@
 [package]
 name = "wcnt"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Mikael Silvén <mikael@silven.nu>"]
 edition = "2018"
 description = "A program to count your warnings inside log files and comparing them against defined limits."
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 # Toml loads reads and writes our config files
