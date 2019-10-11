@@ -117,25 +117,25 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .short("v")
                 .display_order(2000)
                 .multiple(true)
-                .help("Be more verbose. (Add more for more)"),
+                .help("Be more verbose. (-vv for very verbose)"),
         )
         .arg(
             Arg::with_name("print_all")
                 .long("all")
-                .display_order(1000)
-                .help("Also print non-violating warnings. (if verbose or very very verbose)"),
+                .display_order(2001)
+                .help("Also print non-violating warnings. (if verbose or very verbose)"),
         )
         .arg(
             Arg::with_name("update_limits")
                 .long("update-limits")
-                .display_order(1001)
+                .display_order(1000)
                 .help("Update the Limit.toml files with lower values if no violations were found.")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("prune_limits")
                 .long("prune")
-                .display_order(1003)
+                .display_order(1001)
                 .help("Also aggressively prune Limits.toml files to more minimal forms (requires --update-limits).")
                 .requires("update_limits")
                 .takes_value(false),
