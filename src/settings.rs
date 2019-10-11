@@ -35,6 +35,7 @@ impl Kind {
 pub(crate) struct Settings {
     pub(crate) string_arena: SearchableArena,
     inner: LinkedHashMap<Kind, SettingsField>,
+    kinds_to_ignore: HashSet<Kind>,
 }
 
 impl Settings {
@@ -50,6 +51,22 @@ impl Settings {
             }
         }
         result
+    }
+
+    pub fn kinds<'me>(&'me self) -> impl Iterator<Item=&'me Kind> + 'me {
+        self.inner.keys().filter(move |k| !self.should_skip_kind(k))
+    }
+
+    pub fn configure_kinds_to_run(&mut self, kinds_to_ignore: &Option<Vec<String>>) {
+        if let Some(only_these) = kinds_to_ignore {
+            let as_kinds: HashSet<Kind> = only_these.iter().map(|k| self.string_arena.get_id(k)).flatten().map(Kind::new).collect();
+            let tmp = self.kinds().filter(|k| !as_kinds.contains(k)).cloned();
+            self.kinds_to_ignore = tmp.collect();
+        }
+    }
+
+    pub fn should_skip_kind(&self, kind: &Kind) -> bool {
+        self.kinds_to_ignore.contains(kind)
     }
 
     pub fn get(&self, key: &Kind) -> Option<&SettingsField> {
@@ -102,6 +119,7 @@ impl<'de> Deserialize<'de> for Settings {
         Ok(Settings {
             string_arena: string_arena,
             inner: result,
+            kinds_to_ignore: HashSet::new(), // Configured by command line
         })
     }
 }

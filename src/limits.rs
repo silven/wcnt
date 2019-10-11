@@ -130,8 +130,11 @@ impl LimitsFile {
         })
     }
 
-    pub fn zero(&mut self) {
-        for (_kind, limit) in self.inner.iter_mut() {
+    pub fn zero(&mut self, these: &HashSet<&Kind>) {
+        for (kind, limit) in self.inner.iter_mut() {
+            if !these.contains(&kind) {
+                continue;
+            }
             match limit {
                 Limit::Number(Some(x)) => *x = 0,
                 Limit::Number(None) => { /* inf limit, do nothing */ }

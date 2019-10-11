@@ -15,6 +15,7 @@ use crate::search_for_files::LogFile;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
+use std::error::Error;
 
 /// The LogSearchResult contains the information about what we found in a
 /// [log file](struct.LogFile.html). Because the searches happen in parallel, each LogSearchResult
@@ -29,17 +30,18 @@ pub(crate) struct LogSearchResults {
 /// Start the threads that searches through the `log_files`, using the regular expressions defined in
 /// `settings`. The `limits` are then used to match any "culprit" file (responsible for the warning)
 /// with a [LimitsFile](../limits/struct.Limits.html).
+type SearchResult<'l> = Result<LogSearchResults, (&'l LogFile, std::io::Error)>;
 pub(crate) fn search_files<'logs>(
     settings: &Settings,
     log_files: &'logs [LogFile],
     limits: &HashSet<&Path>,
-) -> Receiver<Result<LogSearchResults, (&'logs LogFile, std::io::Error)>> {
+) -> Result<Receiver<SearchResult<'logs>>, Box<dyn Error>> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
-    crossbeam::scope(|scope| {
+    crossbeam::scope(|file_scope| {
         for lf in log_files {
             let tx = tx.clone();
-            scope.spawn(move |scope| {
+            file_scope.spawn(move |kind_scope| {
                 match read_to_string(lf.path()) {
                     Ok(loaded_file) => {
                         // Move the file into an Arc so we can share it across threads
@@ -48,13 +50,18 @@ pub(crate) fn search_files<'logs>(
                         // but some build system might do the equivalent of "make all" > big_log.txt,
                         // or it might be the console log from Jenkins
                         for kind in lf.kinds() {
+                            if settings.should_skip_kind(kind) {
+                                continue
+                            }
                             let file_contents_handle = file_handle.clone();
                             // TODO; Can be pre-construct these before we read the files?
                             // Since we need to clone the regex for every invocation, I think not.
-                            let regex = settings.get(&kind).unwrap().regex.clone();
+                            let regex = settings.get(&kind)
+                                .expect("Kind don't exist in settings")
+                                .regex.clone();
                             let tx = tx.clone();
 
-                            scope.spawn(move |_| {
+                            kind_scope.spawn(move |_| {
                                 let result = build_regex_searcher(
                                     limits,
                                     kind,
@@ -74,9 +81,9 @@ pub(crate) fn search_files<'logs>(
                 }
             });
         }
-    })
-    .expect("Could not create crossbeam scope.");
-    rx
+    }).map_err(|_| "Could not create crossbeam scope:")?;
+
+    Ok(rx)
 }
 
 /// Search through the `file_contents` using the specified `regex`. Match any findings towards the

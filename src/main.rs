@@ -26,6 +26,7 @@ use crate::search_in_files::LogSearchResults;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, EntryCount, FinalTally};
+use std::iter::FromIterator;
 
 mod limits;
 mod search_for_files;
@@ -63,6 +64,7 @@ fn flatten_limits(raw_form: &HashMap<PathBuf, LimitsFile>) -> HashMap<LimitsEntr
 struct Arguments {
     start_dir: PathBuf,
     config_file: PathBuf,
+    only_kinds: Option<Vec<String>>,
     verbosity: u64,
     update_limits: bool,
     prune_limits: bool,
@@ -97,6 +99,14 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
                 .long("config")
                 .value_name("Wcnt.toml")
                 .help("Use this config file. (Instead of <start>/Wcnt.toml)")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("only")
+                .long("only")
+                .value_name("KIND")
+                .help("Run the check only for these kinds of warnings.")
+                .multiple(true)
                 .takes_value(true),
         )
         .arg(
@@ -142,6 +152,8 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         start_dir: start_dir,
         config_file: config_file,
         verbosity: verbosity,
+        only_kinds: matches.values_of("only")
+            .map(|vs| Vec::from_iter(vs.map(String::from))),
         print_all: matches.is_present("print_all"),
         update_limits: matches.is_present("update_limits"),
         prune_limits: matches.is_present("prune_limits"),
@@ -157,10 +169,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         let config_file = read_to_string(args.config_file.as_path())?;
         toml::from_str(&config_file)?
     };
-    debug!("Starting with these settings: {}", settings.display());
+
+    settings.configure_kinds_to_run(&args.only_kinds);
 
     let globset = construct_types_info(&settings)?;
     let categorizables = settings.categorizables();
+
+    debug!("Starting with these settings: {}", settings.display());
+
     let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
     let (log_files, limits) =
         collect_file_results(&mut settings.string_arena, &categorizables, rx)?;
@@ -177,7 +193,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .keys()
             .map(PathBuf::as_path)
             .collect::<HashSet<&Path>>(),
-    );
+    )?;
 
     // Flatten the limit entries to make it easier to match
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
@@ -225,10 +241,11 @@ fn update_limits(
     tally: &FinalTally,
     aggressive_pruning: bool,
 ) -> Result<(), Box<dyn Error>> {
+    let kinds_to_update: HashSet<_> = settings.kinds().collect();
     let mut updated = HashSet::new();
     let mut limits_copy: HashMap<PathBuf, LimitsFile> = limits.clone();
     for lf in limits_copy.values_mut() {
-        lf.zero();
+        lf.zero(&kinds_to_update);
     }
 
     for entry_count in tally.non_violations() {
