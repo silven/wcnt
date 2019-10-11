@@ -123,6 +123,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
             Arg::with_name("print_all")
                 .long("all")
                 .display_order(2001)
+                .requires("verbose")
                 .help("Also print non-violating warnings. (if verbose or very verbose)"),
         )
         .arg(
