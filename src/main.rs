@@ -21,7 +21,7 @@ use serde::export::fmt::Debug;
 use toml;
 
 use crate::limits::{Category, Limit, LimitsEntry, LimitsFile};
-use crate::search_for_files::{FileData, LogFile};
+use crate::search_for_files::{FileData, LogFile, IgnoreWalker};
 use crate::search_in_files::LogSearchResults;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
@@ -185,7 +185,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     debug!("Starting with these settings: {}", settings.display());
 
-    let rx = search_for_files::construct_file_searcher(&args.start_dir, globset);
+    let rx = search_for_files::construct_file_searcher::<IgnoreWalker>(&args.start_dir, globset);
     let (log_files, limits) =
         collect_file_results(&mut settings.string_arena, &categorizables, rx)?;
 
