@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
-use log::{error, trace};
+use log::{debug, error, trace};
 use regex::Regex;
 
 use crate::limits::{Category, LimitsEntry};
@@ -197,6 +197,7 @@ fn find_limits_for<'limits, 'culprit>(
             }
         }
     }
+    debug!("Did not find a Limits.toml for culprit `{}`", culprit_file.display());
     None
 }
 

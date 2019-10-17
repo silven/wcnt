@@ -208,7 +208,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let results_tmp = gather_results_from_logs(&mut settings.string_arena, rx);
     let flat_limits = flatten_limits(&limits);
 
-    let results = remap_to_actual_limit_entries(&flat_limits, results_tmp);
+    let results = remap_to_actual_limit_entries(&settings.string_arena, &flat_limits, results_tmp);
 
     // Finally, check the results and report any violations
     let tally = check_warnings_against_thresholds(&flat_limits, &results);
@@ -288,6 +288,7 @@ fn update_limits(
 /// always map to an actual user defined warning. This pass lookup the actual warnings and ensure
 /// that we have a user defined limit when doing later comparisons.
 fn remap_to_actual_limit_entries(
+    arena: &SearchableArena,
     defined_limits: &HashMap<LimitsEntry, Option<u64>>,
     found: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
 ) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
@@ -299,7 +300,11 @@ fn remap_to_actual_limit_entries(
         } else if defined_limits.contains_key(&limit.without_category()) {
             limit.without_category()
         } else {
-            panic!("Did not find an appropriate entry inside {:?} for {:?}", defined_limits, limit);
+            for w in &warnings {
+                warn!("Could not handle warning: \"{}\"", w.display(arena));
+            }
+            warn!("Are this/these file(s) outside your source tree?");
+            limit.without_category()
         };
 
         result
@@ -672,7 +677,7 @@ mod test {
         );
         let mut defined_limits = HashMap::new();
         defined_limits.insert(defined_limit_entry.clone(), Some(1));
-        let processed_results = remap_to_actual_limit_entries(&defined_limits, results);
+        let processed_results = remap_to_actual_limit_entries(&main_arena, &defined_limits, results);
         assert_ne!(expected_result, processed_results);
 
         let mut expected_processed_results = HashMap::new();
