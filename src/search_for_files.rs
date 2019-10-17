@@ -36,14 +36,14 @@ pub(crate) enum FileData {
 }
 
 pub(crate) trait FileSearcher {
-    fn canonicalize(path: &Path) -> PathBuf;
+    fn normalize_path(path: &Path) -> PathBuf;
     fn traverse(start: &Path) -> Receiver<PathBuf>;
 }
 
 pub(crate) struct IgnoreWalker;
 
 impl FileSearcher for IgnoreWalker {
-    fn canonicalize(path: &Path) -> PathBuf {
+    fn normalize_path(path: &Path) -> PathBuf {
         path.canonicalize().expect("Could not make abs")
     }
 
@@ -92,7 +92,7 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
 fn process_file<F: FileSearcher>(tx: &Sender<FileData>, entry: PathBuf, types: &HashMap<Kind, GlobSet>) {
     if entry.ends_with("Limits.toml") {
         tx.send(FileData::LimitsFile(
-            F::canonicalize(entry.as_path()),
+            F::normalize_path(entry.as_path()),
         ))
         .expect("Could not send FileData::LimitsFile.");
     } else {
@@ -103,7 +103,7 @@ fn process_file<F: FileSearcher>(tx: &Sender<FileData>, entry: PathBuf, types: &
             .collect();
 
         if !file_ts.is_empty() {
-            let abs_path = F::canonicalize(&entry);
+            let abs_path = F::normalize_path(&entry);
             tx.send(FileData::LogFile(LogFile(abs_path, file_ts)))
                 .expect("Could not send FileData::LogFile");
         }
@@ -142,7 +142,7 @@ mod test {
         struct DummyFileSearcher;
 
         impl FileSearcher for DummyFileSearcher {
-            fn canonicalize(path: &Path) -> PathBuf {
+            fn normalize_path(path: &Path) -> PathBuf {
                 path.to_path_buf()
             }
 
