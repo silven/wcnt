@@ -69,12 +69,12 @@ pub(crate) fn construct_file_searcher<F: FileSearcher>(
     start_dir: &Path,
     types: HashMap<Kind, GlobSet>,
 ) -> Receiver<FileData> {
+    use rayon::prelude::*;
+
     let (tx, rx) = bounded(100);
-    crossbeam::scope(|scope| {
-        for entry in F::traverse(&start_dir) {
-            scope.spawn(|_| process_file::<F>(&tx, entry, &types));
-        }
-    }).expect("Could not create crossbeam scope for file searching");
+    F::traverse(&start_dir).into_iter().par_bridge().for_each(|entry| {
+         process_file::<F>(&tx, entry, &types);
+    });
     rx
 }
 

@@ -17,8 +17,9 @@ ignore = "0.4"
 # Because ignore is bad, we also need GlobSet to match our files
 globset = "0.4"
 # Crossbeam channels for parallel processing
-crossbeam = "0.7"
 crossbeam-channel = "0.3.6"
+# Rayon for parallelism
+rayon = "1.2"
 # We use Regex to search ze files:
 regex = "1.0"
 # Clap for parsing arguments

@@ -1,6 +1,7 @@
 //! Module responsible for searching inside files, looking for warnings and matching them against
 //! the identified limits.
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fs::read_to_string;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -15,7 +16,6 @@ use crate::search_for_files::LogFile;
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, Description};
-use std::error::Error;
 
 /// The LogSearchResult contains the information about what we found in a
 /// [log file](struct.LogFile.html). Because the searches happen in parallel, each LogSearchResult
@@ -38,7 +38,7 @@ pub(crate) fn search_files<'logs>(
 ) -> Result<Receiver<SearchResult<'logs>>, Box<dyn Error>> {
     let (tx, rx) = crossbeam_channel::bounded(100);
     // Parse all log files in parallel, once for each kind of warning
-    crossbeam::scope(|file_scope| {
+    rayon::scope(|file_scope| {
         for lf in log_files {
             let tx = tx.clone();
             file_scope.spawn(move |kind_scope| {
@@ -81,7 +81,7 @@ pub(crate) fn search_files<'logs>(
                 }
             });
         }
-    }).map_err(|_| "Could not create crossbeam scope:")?;
+    });
 
     Ok(rx)
 }
