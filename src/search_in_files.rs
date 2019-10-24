@@ -2,7 +2,6 @@
 //! the identified limits.
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fs::read_to_string;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,11 +26,23 @@ pub(crate) struct LogSearchResults {
     pub(crate) warnings: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>>,
 }
 
+pub(crate) trait FileReader {
+    fn read_file_to_string(path: &Path) -> std::io::Result<String>;
+}
+
+pub(crate) struct FileSystemReader;
+
+impl FileReader for FileSystemReader {
+    fn read_file_to_string(path: &Path) -> std::io::Result<String> {
+        std::fs::read_to_string(path)
+    }
+}
+
 /// Start the threads that searches through the `log_files`, using the regular expressions defined in
 /// `settings`. The `limits` are then used to match any "culprit" file (responsible for the warning)
 /// with a [LimitsFile](../limits/struct.Limits.html).
 type SearchResult<'l> = Result<LogSearchResults, (&'l LogFile, std::io::Error)>;
-pub(crate) fn search_files<'logs>(
+pub(crate) fn search_files<'logs, R: FileReader>(
     settings: &Settings,
     log_files: &'logs [LogFile],
     limits: &HashSet<&Path>,
@@ -42,7 +53,7 @@ pub(crate) fn search_files<'logs>(
         for lf in log_files {
             let tx = tx.clone();
             file_scope.spawn(move |kind_scope| {
-                match read_to_string(lf.path()) {
+                match R::read_file_to_string(lf.path()) {
                     Ok(loaded_file) => {
                         // Move the file into an Arc so we can share it across threads
                         let file_handle = Arc::new(loaded_file);

@@ -22,7 +22,7 @@ use toml;
 
 use crate::limits::{Category, Limit, LimitsEntry, LimitsFile};
 use crate::search_for_files::{FileData, LogFile, IgnoreWalker};
-use crate::search_in_files::LogSearchResults;
+use crate::search_in_files::{FileSystemReader, LogSearchResults};
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, EntryCount, FinalTally};
@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         trace!("{}", limits_file.display(&settings.string_arena));
     }
 
-    let rx = search_in_files::search_files(
+    let rx = search_in_files::search_files::<FileSystemReader>(
         &settings,
         &log_files,
         &limits
