@@ -120,4 +120,27 @@ mod test {
         let inside_arena = arena.lookup(found_as).unwrap();
         assert_eq!(a_string, inside_arena);
     }
+
+    #[test]
+    fn fmt_helper_works() {
+        struct Foo { value: usize };
+        struct AsBinary(bool);
+
+        impl Foo {
+            fn new(value: usize) -> Self { Foo { value } }
+            fn display(&self, as_binary: AsBinary) -> impl Display + '_ {
+                fmt_helper(move |f| {
+                    if as_binary.0 {
+                        write!(f, "{:#b}", self.value)
+                    } else {
+                        write!(f, "{}", self.value)
+                    }
+                })
+            }
+        }
+
+        let foo = Foo::new(5);
+        assert_eq!(format!("{}", foo.display(AsBinary(true))), "0b101");
+        assert_eq!(format!("{}", foo.display(AsBinary(false))), "5");
+    }
 }
