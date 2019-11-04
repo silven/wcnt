@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
-use ignore::{DirEntry, Error, WalkBuilder};
+use jwalk::{DirEntry, WalkDir};
+use rayon::prelude::*;
 
 use crate::settings::Kind;
 
@@ -37,29 +38,22 @@ pub(crate) enum FileData {
 
 pub(crate) trait FileSearcher {
     fn normalize_path(path: &Path) -> PathBuf;
-    fn traverse(start: &Path) -> Receiver<PathBuf>;
+    fn traverse<F: Fn(&Path) + Sync>(start: &Path, callback: F);
 }
 
-pub(crate) struct IgnoreWalker;
+pub(crate) struct JWalkWalker;
 
-impl FileSearcher for IgnoreWalker {
+impl FileSearcher for JWalkWalker {
     fn normalize_path(path: &Path) -> PathBuf {
         path.canonicalize().expect("Could not make abs")
     }
 
-    fn traverse(start: &Path) -> Receiver<PathBuf> {
-        let (tx, rx) = bounded(100);
-        WalkBuilder::new(start).build_parallel().run(|| {
-            let tx = tx.clone();
-            Box::new(move |result| {
-                if let Some(entry) = is_file(result) {
-                    tx.send(entry.path().to_path_buf())
-                        .expect("Could not send traverse result");
-                };
-                ignore::WalkState::Continue
-            })
+    fn traverse<F: Fn(&Path) + Sync>(start: &Path, callback: F) {
+        WalkDir::new(start).skip_hidden(false).into_iter().par_bridge().for_each(|result| {
+            if let Some(entry) = is_file(result) {
+                callback(&entry.path());
+            };
         });
-        rx
     }
 }
 
@@ -69,19 +63,20 @@ pub(crate) fn construct_file_searcher<F: FileSearcher>(
     start_dir: &Path,
     types: HashMap<Kind, GlobSet>,
 ) -> Receiver<FileData> {
-    use rayon::prelude::*;
-
     let (tx, rx) = bounded(100);
-    F::traverse(&start_dir).into_iter().par_bridge().for_each(|entry| {
-         process_file::<F>(&tx, entry, &types);
+    let start_dir = start_dir.to_path_buf();
+    std::thread::spawn(move || {
+        F::traverse(&start_dir, |entry| {
+            process_file::<F>(&tx, entry, &types);
+        });
     });
     rx
 }
 
-/// Is the `entry` a file? (See [DirEntry](../../ignore/struct.DirEntry.html))
-fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
+/// Is the `entry` a file? (See [DirEntry](../../jwalk/struct.DirEntry.html))
+fn is_file(entry: Result<DirEntry, std::io::Error>) -> Option<DirEntry> {
     if let Ok(dent) = entry {
-        if dent.file_type()?.is_file() {
+        if dent.file_type.as_ref().map(|ft| ft.is_file()).unwrap_or(false) {
             return Some(dent);
         }
     }
@@ -89,10 +84,10 @@ fn is_file(entry: Result<DirEntry, Error>) -> Option<DirEntry> {
 }
 
 /// Process the `entry` and reply on the `tx` channel if this is an entry of interest.
-fn process_file<F: FileSearcher>(tx: &Sender<FileData>, entry: PathBuf, types: &HashMap<Kind, GlobSet>) {
+fn process_file<F: FileSearcher>(tx: &Sender<FileData>, entry: &Path, types: &HashMap<Kind, GlobSet>) {
     if entry.ends_with("Limits.toml") {
         tx.send(FileData::LimitsFile(
-            F::normalize_path(entry.as_path()),
+            F::normalize_path(entry),
         ))
         .expect("Could not send FileData::LimitsFile.");
     } else {
@@ -146,12 +141,10 @@ mod test {
                 path.to_path_buf()
             }
 
-            fn traverse(_start: &Path) -> Receiver<PathBuf> {
-                let (tx, rx) = bounded(100);
-                tx.send(PathBuf::from("/src/Limits.toml")).expect("Send1");
-                tx.send(PathBuf::from("/src/script.py")).expect("Send2");
-                tx.send(PathBuf::from("/src/main.c")).expect("Send3");
-                rx
+            fn traverse<F: Fn(&Path)>(_start: &Path, callback: F) {
+                callback(Path::new("/src/Limits.toml"));
+                callback(Path::new("/src/script.py"));
+                callback(Path::new("/src/main.c"));
             }
         }
 

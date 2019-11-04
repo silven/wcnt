@@ -47,7 +47,7 @@ pub(crate) fn search_files<'logs, R: FileReader>(
     log_files: &'logs [LogFile],
     limits: &HashSet<&Path>,
 ) -> Result<Receiver<SearchResult<'logs>>, Box<dyn Error>> {
-    let (tx, rx) = crossbeam_channel::bounded(100);
+    let (tx, rx) = crossbeam_channel::unbounded();
     // Parse all log files in parallel, once for each kind of warning
     rayon::scope(|file_scope| {
         for lf in log_files {
