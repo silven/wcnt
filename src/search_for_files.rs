@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 
 use crossbeam_channel::{bounded, Receiver, Sender};
 use globset::GlobSet;
-use jwalk::{DirEntry, WalkDir};
-use rayon::prelude::*;
+use ignore::DirEntry;
 
 use crate::settings::Kind;
+use std::io;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 /// LogFile declares a file on the file system that has been identified as relevant to be searched.
@@ -37,22 +38,30 @@ pub(crate) enum FileData {
 }
 
 pub(crate) trait FileSearcher {
-    fn normalize_path(path: &Path) -> PathBuf;
-    fn traverse<F: Fn(&Path) + Sync>(start: &Path, callback: F);
+    fn normalize_path(path: &Path) -> Result<PathBuf, io::Error>;
+    fn traverse<F: Fn(&Path) + Send + Clone + 'static>(start: &Path, callback: F);
 }
 
-pub(crate) struct JWalkWalker;
+pub(crate) struct IgnoreWalker;
 
-impl FileSearcher for JWalkWalker {
-    fn normalize_path(path: &Path) -> PathBuf {
-        path.canonicalize().expect("Could not make abs")
+impl FileSearcher for IgnoreWalker {
+    fn normalize_path(path: &Path) -> Result<PathBuf, io::Error> {
+        path.canonicalize()
     }
 
-    fn traverse<F: Fn(&Path) + Sync>(start: &Path, callback: F) {
-        WalkDir::new(start).skip_hidden(false).into_iter().par_bridge().for_each(|result| {
-            if let Some(entry) = is_file(result) {
-                callback(&entry.path());
-            };
+    fn traverse<F: Fn(&Path) + Send + Clone + 'static>(start: &Path, callback: F) {
+        let walker = ignore::WalkBuilder::new(start)
+            .standard_filters(false)
+            .hidden(true)
+            .build_parallel();
+        walker.run(|| {
+            let callback = callback.clone();
+            Box::new(move |result| {
+                if let Some(entry) = is_file(result) {
+                    callback(&entry.path());
+                };
+                ignore::WalkState::Continue
+            })
         });
     }
 }
@@ -65,8 +74,10 @@ pub(crate) fn construct_file_searcher<F: FileSearcher>(
 ) -> Receiver<FileData> {
     let (tx, rx) = bounded(128);
     let start_dir = start_dir.to_path_buf();
+
     std::thread::spawn(move || {
-        F::traverse(&start_dir, |entry| {
+        let types = Arc::new(types);
+        F::traverse(&start_dir, move |entry| {
             process_file::<F>(&tx, entry, &types);
         });
     });
@@ -74,9 +85,9 @@ pub(crate) fn construct_file_searcher<F: FileSearcher>(
 }
 
 /// Is the `entry` a file? (See [DirEntry](../../jwalk/struct.DirEntry.html))
-fn is_file(entry: Result<DirEntry, std::io::Error>) -> Option<DirEntry> {
+fn is_file(entry: Result<DirEntry, ignore::Error>) -> Option<DirEntry> {
     if let Ok(dent) = entry {
-        if dent.file_type.as_ref().map(|ft| ft.is_file()).unwrap_or(false) {
+        if dent.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
             return Some(dent);
         }
     }
@@ -87,7 +98,7 @@ fn is_file(entry: Result<DirEntry, std::io::Error>) -> Option<DirEntry> {
 fn process_file<F: FileSearcher>(tx: &Sender<FileData>, entry: &Path, types: &HashMap<Kind, GlobSet>) {
     if entry.ends_with("Limits.toml") {
         tx.send(FileData::LimitsFile(
-            F::normalize_path(entry),
+            F::normalize_path(entry).expect("Could not normalize"),
         ))
         .expect("Could not send FileData::LimitsFile.");
     } else {
@@ -98,7 +109,7 @@ fn process_file<F: FileSearcher>(tx: &Sender<FileData>, entry: &Path, types: &Ha
             .collect();
 
         if !file_ts.is_empty() {
-            let abs_path = F::normalize_path(&entry);
+            let abs_path = F::normalize_path(&entry).expect("Could not normalize");
             tx.send(FileData::LogFile(LogFile(abs_path, file_ts)))
                 .expect("Could not send FileData::LogFile");
         }
@@ -137,8 +148,9 @@ mod test {
         struct DummyFileSearcher;
 
         impl FileSearcher for DummyFileSearcher {
-            fn normalize_path(path: &Path) -> PathBuf {
-                path.to_path_buf()
+            fn normalize_path(path: &Path) -> Result<PathBuf, io::Error> {
+                // don't touch the filesystem
+                Ok(path.to_path_buf())
             }
 
             fn traverse<F: Fn(&Path)>(_start: &Path, callback: F) {

@@ -1,6 +1,6 @@
 [package]
 name = "wcnt"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Mikael Silvén <mikael@silven.nu>"]
 edition = "2018"
 description = "A program to count your warnings inside log files and comparing them against defined limits."
@@ -12,8 +12,8 @@ toml = { version = "0.5", features = ["preserve_order"] }
 linked-hash-map = { version = "0.5", features = ["serde_impl"] }
 # Serde helps us deserialize into custom types
 serde = { version = "1.0", features = ["derive"] }
-# jwalk finds our limit and log files
-jwalk = "0.4"
+# Use ignore to find limits and pathfiles
+ignore = "0.4"
 # Because ignore is bad, we also need GlobSet to match our files
 globset = "0.4"
 # Crossbeam channels for parallel processing
