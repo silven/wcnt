@@ -10,7 +10,8 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::read_to_string;
-use std::path::{Path, PathBuf};
+use std::iter::FromIterator;
+use std::path::PathBuf;
 
 use clap::{App, Arg};
 use crossbeam_channel::Receiver;
@@ -21,12 +22,11 @@ use serde::export::fmt::Debug;
 use toml;
 
 use crate::limits::{Category, Limit, LimitsEntry, LimitsFile};
-use crate::search_for_files::{FileData, LogFile, JWalkWalker};
+use crate::search_for_files::{FileData, JWalkWalker, LogFile};
 use crate::search_in_files::{FileSystemReader, LogSearchResults};
 use crate::settings::{Kind, Settings};
 use crate::utils::SearchableArena;
 use crate::warnings::{CountsTowardsLimit, EntryCount, FinalTally};
-use std::iter::FromIterator;
 
 mod limits;
 mod search_for_files;
@@ -196,12 +196,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let rx = search_in_files::search_files::<FileSystemReader>(
         &settings,
-        &log_files,
         &limits
             .keys()
-            .map(PathBuf::as_path)
-            .collect::<HashSet<&Path>>(),
-    )?;
+            .cloned()
+            .collect::<HashSet<_>>(),
+        log_files,
+    );
 
     // Flatten the limit entries to make it easier to match
     // Construct {limits_file}:{kind}:{category} -> u64  mapping
@@ -367,7 +367,7 @@ fn report_tally_results(
 /// [LimitsEntry](struct.LimitsEntry.html).
 fn gather_results_from_logs(
     arena: &mut SearchableArena,
-    rx: Receiver<Result<LogSearchResults, (&LogFile, std::io::Error)>>,
+    rx: Receiver<Result<LogSearchResults, (LogFile, std::io::Error)>>,
 ) -> HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> {
     let mut results: HashMap<LimitsEntry, HashSet<CountsTowardsLimit>> = HashMap::new();
     for search_result_result in rx {
@@ -495,7 +495,7 @@ mod test {
         let category = Category::new(arena_2.insert("category".to_owned()));
 
         let our_limit_entry = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             category.clone(),
         );
@@ -544,19 +544,19 @@ mod test {
         let desc_header2 = Description::new(second_arena.insert("Bad interface".to_owned()));
 
         let code_limit_entry = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             category_code1.clone(),
         );
 
         let header_limit_entry1 = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             category_header1.clone(),
         );
 
         let header_limit_entry2 = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             category_header2.clone(),
         );
@@ -646,12 +646,12 @@ mod test {
         );
 
         let main_code_entry = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             main_category_code,
         );
         let main_interface_entry = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             main_category_header,
         );
@@ -671,7 +671,7 @@ mod test {
         assert_eq!(expected_result, results);
 
         let defined_limit_entry = LimitsEntry::new(
-            Some("/tmp/Limits.toml".as_ref()),
+            Some("/tmp/Limits.toml"),
             kind.clone(),
             Category::none(),
         );

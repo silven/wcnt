@@ -3,7 +3,7 @@
 //! For every Kind, we need a regular expression matching the warning, and a list of glob patterns
 //! to know which log files we should search through.
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::fmt::Display;
 
 use id_arena::Id;
@@ -38,9 +38,27 @@ pub(crate) struct Settings {
     kinds_to_ignore: HashSet<Kind>,
 }
 
+pub(crate) struct RelevantRegexes {
+    inner: HashMap<Kind, Regex>,
+}
+
+impl RelevantRegexes {
+    pub(crate) fn get(&self, kind: &Kind) -> Option<&Regex> {
+        self.inner.get(kind)
+    }
+}
+
 impl Settings {
     pub fn iter(&self) -> impl Iterator<Item = (&Kind, &SettingsField)> {
         self.inner.iter()
+    }
+
+    pub(crate) fn kinds_and_regex(&self) -> RelevantRegexes {
+        RelevantRegexes {
+            inner: self.kinds().map(|k|
+                (k.clone(), self.inner.get(k).unwrap().regex.clone())
+            ).collect(),
+        }
     }
 
     pub(crate) fn categorizables(&self) -> HashSet<Kind> {
@@ -65,12 +83,8 @@ impl Settings {
         }
     }
 
-    pub fn should_skip_kind(&self, kind: &Kind) -> bool {
+    fn should_skip_kind(&self, kind: &Kind) -> bool {
         self.kinds_to_ignore.contains(kind)
-    }
-
-    pub fn get(&self, key: &Kind) -> Option<&SettingsField> {
-        self.inner.get(key)
     }
 
     pub fn display<'me>(&'me self) -> impl Display + 'me {

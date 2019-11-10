@@ -63,7 +63,7 @@ pub(crate) fn construct_file_searcher<F: FileSearcher>(
     start_dir: &Path,
     types: HashMap<Kind, GlobSet>,
 ) -> Receiver<FileData> {
-    let (tx, rx) = bounded(100);
+    let (tx, rx) = bounded(128);
     let start_dir = start_dir.to_path_buf();
     std::thread::spawn(move || {
         F::traverse(&start_dir, |entry| {

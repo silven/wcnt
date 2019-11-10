@@ -231,9 +231,9 @@ pub(crate) struct LimitsEntry {
 }
 
 impl LimitsEntry {
-    pub fn new(limits_file: Option<&Path>, kind: Kind, category: Category) -> Self {
+    pub fn new<R: Into<PathBuf>>(limits_file: Option<R>, kind: Kind, category: Category) -> Self {
         LimitsEntry {
-            limits_file: limits_file.map(PathBuf::from),
+            limits_file: limits_file.map(Into::into),
             kind: kind,
             category: category,
         }

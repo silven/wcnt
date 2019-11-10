@@ -1,10 +1,8 @@
 //! Module responsible for searching inside files, looking for warnings and matching them against
 //! the identified limits.
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
 use log::{debug, error, trace};
@@ -41,70 +39,60 @@ impl FileReader for FileSystemReader {
 /// Start the threads that searches through the `log_files`, using the regular expressions defined in
 /// `settings`. The `limits` are then used to match any "culprit" file (responsible for the warning)
 /// with a [LimitsFile](../limits/struct.Limits.html).
-type SearchResult<'l> = Result<LogSearchResults, (&'l LogFile, std::io::Error)>;
-pub(crate) fn search_files<'logs, R: FileReader>(
+pub(crate) fn search_files<'l, R: FileReader>(
     settings: &Settings,
-    log_files: &'logs [LogFile],
-    limits: &HashSet<&Path>,
-) -> Result<Receiver<SearchResult<'logs>>, Box<dyn Error>> {
-    let (tx, rx) = crossbeam_channel::unbounded();
-    // Parse all log files in parallel, once for each kind of warning
-    rayon::scope(|file_scope| {
-        for lf in log_files {
-            let tx = tx.clone();
-            file_scope.spawn(move |kind_scope| {
-                match R::read_file_to_string(lf.path()) {
-                    Ok(loaded_file) => {
-                        // Move the file into an Arc so we can share it across threads
-                        let file_handle = Arc::new(loaded_file);
-                        // Most log files will only ever be parsed once,
-                        // but some build system might do the equivalent of "make all" > big_log.txt,
-                        // or it might be the console log from Jenkins
-                        for kind in lf.kinds() {
-                            if settings.should_skip_kind(kind) {
-                                continue
-                            }
-                            let file_contents_handle = file_handle.clone();
-                            // TODO; Can be pre-construct these before we read the files?
-                            // Since we need to clone the regex for every invocation, I think not.
-                            let regex = settings.get(&kind)
-                                .expect("Kind don't exist in settings")
-                                .regex.clone();
-                            let tx = tx.clone();
+    limit_files: &HashSet<PathBuf>,
+    log_files: Vec<LogFile>,
+) -> Receiver<Result<LogSearchResults, (LogFile, std::io::Error)>> {
+    use rayon::iter::ParallelIterator;
+    use rayon::iter::IntoParallelIterator;
+    let (tx, rx) = crossbeam_channel::bounded(128);
 
-                            kind_scope.spawn(move |_| {
-                                let result = build_regex_searcher(
-                                    limits,
-                                    kind,
-                                    &file_contents_handle,
-                                    regex,
-                                );
-                                tx.send(Ok(result))
-                                    .expect("Could not send() logfile result");
-                            });
+    let regexes_to_use = settings.kinds_and_regex();
+    let limit_files = limit_files.clone();
+
+    std::thread::spawn(move || {
+        // Parse all log files in parallel
+        log_files.into_par_iter().for_each(|lf| {
+            match R::read_file_to_string(lf.path()) {
+                Ok(loaded_file) => {
+                    // TODO: figure out a way to cleanly skip reading the file if we're skipping
+                    // all of its kinds.
+                    for kind in lf.kinds() {
+                        if let Some(regex) = regexes_to_use.get(kind) {
+                            let result = search_contents_with_regex(
+                                &limit_files,
+                                kind,
+                                &loaded_file,
+                                regex,
+                            );
+                            tx.send(Ok(result)).expect("Could not send() result");
                         }
                     }
-                    Err(e) => {
-                        error!("Could not read log file: {}, {}", lf.path().display(), e);
-                        tx.send(Err((lf, e)))
-                            .expect("Could not send() logfile io error");
-                    }
-                }
-            });
-        }
+                },
+                Err(e) => {
+                    error!("Could not read log file: {}, {}", lf.path().display(), e);
+                    tx.send(Err((lf, e)))
+                        .expect("Could not send() logfile io error");
+                },
+            }
+        });
     });
-
-    Ok(rx)
+    rx
 }
+
+// Most log files will only ever be parsed once,
+// but some build system might do the equivalent of "make all" > big_log.txt,
+// or it might be the console log from Jenkins
 
 /// Search through the `file_contents` using the specified `regex`. Match any findings towards the
 /// appropriate [LimitsEntry](../limits/struct.LimitsEntry.html) and return the
 /// [search results](struct.LogSearchResults.html).
-fn build_regex_searcher(
-    limits: &HashSet<&Path>,
+fn search_contents_with_regex(
+    limits: &HashSet<PathBuf>,
     kind: &Kind,
     file_contents: &str,
-    regex: Regex,
+    regex: &Regex,
 ) -> LogSearchResults {
     let mut result = LogSearchResults {
         string_arena: SearchableArena::new(),
@@ -112,7 +100,7 @@ fn build_regex_searcher(
     };
     // Let's cache the results we get from the calls to `find_limits_for`, in case we get multiple
     // warnings from the same file.
-    let mut limits_cache: HashMap<PathBuf, Option<&Path>> = HashMap::new();
+    let mut limits_cache: HashMap<PathBuf, Option<&PathBuf>> = HashMap::new();
 
     for matching in regex.captures_iter(file_contents) {
         // What file is the culprit? TODO: We don't have any decent normalize() function yet..
@@ -135,13 +123,13 @@ fn build_regex_searcher(
         let cat_match = matching.name("category").map(|m| m.as_str());
         let desc_match = matching.name("description").map(|m| m.as_str());
 
-        // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.rust sort
+        // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.
         let limits_file = if limits_cache.contains_key(&culprit_file) {
             *limits_cache.get(&culprit_file).unwrap()
         } else {
             *limits_cache
                 .entry(culprit_file.clone())
-                .or_insert_with(|| find_limits_for(&limits, culprit_file.as_path()))
+                .or_insert_with(|| find_limits_for(limits, culprit_file.as_path()))
         };
 
         let category = match cat_match {
@@ -184,9 +172,9 @@ fn build_regex_searcher(
 /// of how Rust doesn't treat them as path separators. `build_regex_searcher` does a string replace
 /// operation before calling this function, so it shouldn't be a problem in real world scenarios.
 fn find_limits_for<'limits, 'culprit>(
-    limits: &'limits HashSet<&Path>,
+    limits: &'limits HashSet<PathBuf>,
     culprit_file: &'culprit Path,
-) -> Option<&'limits Path> {
+) -> Option<&'limits PathBuf> {
     for parent_dir in culprit_file.ancestors() {
         // This happens when parent_dir turns into empty string,
         // and everything ends with an empty string...
@@ -218,22 +206,22 @@ mod test {
 
     #[test]
     fn find_limits_finds_files() {
-        let limits_1 = Path::new("foo/bar/Limits.toml");
-        let limits_2 = Path::new("foo/bar/baz/Limits.toml");
-        let limits: HashSet<&Path> = vec![limits_1, limits_2].into_iter().collect();
+        let limits_1 = PathBuf::from("foo/bar/Limits.toml");
+        let limits_2 = PathBuf::from("foo/bar/baz/Limits.toml");
+        let limits: HashSet<PathBuf> = vec![limits_1.clone(), limits_2.clone()].into_iter().collect();
 
         assert_eq!(find_limits_for(&limits, Path::new("data/file.c")), None);
         assert_eq!(
             find_limits_for(&limits, Path::new("foo/bar/file.c")),
-            Some(limits_1)
+            Some(&limits_1)
         );
         assert_eq!(
             find_limits_for(&limits, Path::new("foo/bar/baz/badoo/main.c")),
-            Some(limits_2)
+            Some(&limits_2)
         );
         assert_eq!(
             find_limits_for(&limits, Path::new("bar/baz/main.c")),
-            Some(limits_2)
+            Some(&limits_2)
         );
     }
 }
