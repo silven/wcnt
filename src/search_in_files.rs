@@ -39,7 +39,7 @@ impl FileReader for FileSystemReader {
 /// Start the threads that searches through the `log_files`, using the regular expressions defined in
 /// `settings`. The `limits` are then used to match any "culprit" file (responsible for the warning)
 /// with a [LimitsFile](../limits/struct.Limits.html).
-pub(crate) fn search_files<'l, R: FileReader>(
+pub(crate) fn search_files<R: FileReader>(
     settings: &Settings,
     limit_files: &HashSet<PathBuf>,
     log_files: Vec<LogFile>,

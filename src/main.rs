@@ -1,4 +1,6 @@
 #![deny(intra_doc_link_resolution_failure)]
+// I do prefer being explicit sometimes.
+#![allow(clippy::redundant_field_names)]
 //! wcnt (Warning Counter) is a small command line tool to count warnings in files, and map them
 //! to declared limits. It may then return an error code if any limit is breached.
 //!
@@ -152,7 +154,7 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
     let config_file = matches
         .value_of_os("config_file")
         .map(PathBuf::from)
-        .unwrap_or_else(|| start_dir.join("Wcnt.toml").to_path_buf());
+        .unwrap_or_else(|| start_dir.join("Wcnt.toml"));
 
     let verbosity = matches.occurrences_of("verbose");
 

@@ -164,7 +164,7 @@ impl LimitsFile {
                     .into_iter()
                     // Checks if the contained value is zero, Option::contains is not stable yet.
                     .filter(|(_cat, val)| !(val.is_some() && val.unwrap() == 0))
-                    .map(|(cat, val)| (cat.clone(), val.clone()))
+                    .map(|(cat, val)| (cat.clone(), *val))
                     .collect::<LinkedHashMap<Category, Option<u64>>>();
                 if per_cat.is_empty() {
                     PruneResult::AllZero
@@ -181,7 +181,7 @@ impl LimitsFile {
                 PruneResult::AllZero => {
                     *limit = Limit::Number(Some(0));
                 }
-                PruneResult::OnlyOne(value) => *limit = Limit::Number(value.clone()),
+                PruneResult::OnlyOne(value) => *limit = Limit::Number(*value),
                 PruneResult::StillSomeLeft => { /* do nothing */ }
             }
         }
