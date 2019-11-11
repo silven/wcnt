@@ -1,6 +1,6 @@
 # Readme
 Warning Counter (wcnt) is a small command line utility to count the number of warnings in log files, and compare them to
-defined limits.
+defined limits. Useful in CI environments where you want to ensure the number or warnings does not increase.
 
 The kinds of warnings are defined in `Wcnt.toml` which should be located at the root of your project.
 Limits are defined in `Limits.toml` which are then valid for source files in that tree of directories
@@ -25,9 +25,10 @@ Required settings for each are `regex` and `files`. The `regex` value *must* def
 which file was responsible for each particular warning, and thus, which `Limits.toml` should be used. 
 
 The capture groups `line`, `column`, `category` and `description` are optional and allows the system to disregard
-multiples of the same warning. The `category` key also allows you to define individual limits for different categories.
+multiples of the same warning (Useful for header files). 
+The `category` key also allows you to define individual limits for different categories.
 
-In order to be able to use per catgory limits, your regex *must* define a `category` capture group. Otherwise the system
+In order to be able to use per-category limits, your regex *must* define a `category` capture group. Otherwise the system
 will abort when parsing the `Limits.toml` file. This is to prevent a false sense of security.
 
 ## Example Limits.toml
@@ -45,6 +46,8 @@ flake8 = 300
 -Wunused-variable = 2 
 _ = 0
 ```
+*Note*: Per-category definitions must be at the end of file, because of [how TOML works](https://github.com/alexcrichton/toml-rs/issues/142).
+
 When not using per-category limits, all categories are counted towards the same limit. In other words, these two ways
 of defining limits are equivalent.
 ```toml
@@ -83,6 +86,16 @@ project
     ├── compilation.log
     └── lint.log
 ```
+
+### Infinite limits
+If you've got a particular kind of warning that you do not want to bother with for a certain part of the code base, you
+can specify the limit to be `inf`, like so:
+```toml
+[kind]
+-Wbothersome = inf
+```
+This is useful if you've got vendored code, or experimental code, which you do not want or can keep to the same standard
+as your production code, but still want to compile with otherwise the exact same settings.
 
 ## Pruning
 The tool can automatically update/lower and prune your `Limits.toml` files.
@@ -142,3 +155,14 @@ OPTIONS:
         --config <Wcnt.toml>    Use this config file. (Instead of <start>/Wcnt.toml)
 ```
 
+## Design goals
+* Wcnt tries to not do too many things.
+* It does try to be flexible, so your build system doesn't have to be.
+* Wcnt should not give a false sense of security.
+
+### Open issues
+* I have not yet decided how to handle warnings that originate from outside your codebase. 
+Hopefully you can use `-isystem` for these things.
+* Windows paths are bothersome, and if your tool outputs `\\?\`-style paths you might be in trouble. 
+* I'd like to have a "remapping" feature, so you can analyse your warnings even if they use absolute paths, and where
+generated on a different system than where you analyze them.
