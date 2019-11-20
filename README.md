@@ -168,9 +168,14 @@ Hopefully you can use `-isystem` for these things.
 generated on a different system than where you analyze them.
 
 # Installation and Building
-Until I have published Wcnt to [crates.io](crates.io) you can find binaries at the [Github Releases Page](https://github.com/silven/wcnt/releases). Sorry about that.
+Wcnt is (hopefully) published to [crates.io](crates.io). You should be able to install it by running 
+```plain
+cargo install wcnt
+```
 
-Wcnt should also build normally with cargo.
+You can hopefully also find binaries at the [Github Releases Page](https://github.com/silven/wcnt/releases).
+
+If you want to build it locally, Wcnt should also build normally with cargo.
 ```plain
 cargo build --release
 ```

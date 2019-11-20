@@ -5,6 +5,7 @@ license = "Apache-2.0"
 authors = ["Mikael Silvén <mikael@silven.nu>"]
 edition = "2018"
 description = "A program to count your warnings inside log files and comparing them against defined limits."
+repository = "https://github.com/silven/wcnt"
 
 [dependencies]
 # Toml loads reads and writes our config files
