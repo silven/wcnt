@@ -1,3 +1,4 @@
+// This doesn't seem to work/do anything?
 #![deny(intra_doc_link_resolution_failure)]
 // I do prefer being explicit sometimes.
 #![allow(clippy::redundant_field_names)]

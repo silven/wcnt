@@ -97,7 +97,7 @@ can specify the limit to be `inf`, like so:
 This is useful if you've got vendored code, or experimental code, which you do not want or can keep to the same standard
 as your production code, but still want to compile with otherwise the exact same settings.
 
-## Pruning
+### Pruning
 The tool can automatically update/lower and prune your `Limits.toml` files.
 When you have zero warnings, with the flag `--update-limits` the following limits:
 ```toml
@@ -134,20 +134,20 @@ you will have to take care of any merge conflicts yourself.
 ## Output from --help
 ```plain
 $ wcnt --help
-Warning Counter (wcnt) 0.3.0
+Warning Counter (wcnt) 0.4.0
 Mikael Silvén <mikael@silven.nu>
 A program to count your warnings inside log files and comparing them against defined limits.
 
 USAGE:
-    wcnt.exe [FLAGS] [OPTIONS]
+    wcnt [FLAGS] [OPTIONS]
 
 FLAGS:
     -h, --help             Prints help information
     -V, --version          Prints version information
-        --all              Also print non-violating warnings. (if verbose or very very verbose)
         --update-limits    Update the Limit.toml files with lower values if no violations were found.
         --prune            Also aggressively prune Limits.toml files to more minimal forms (requires --update-limits).
-    -v                     Be more verbose. (Add more for more)
+    -v                     Be more verbose. (-vv for very verbose)
+        --all              Also print non-violating warnings. (if verbose or very verbose)
 
 OPTIONS:
         --only <KIND>...        Run the check only for these kinds of warnings.
@@ -166,3 +166,19 @@ Hopefully you can use `-isystem` for these things.
 * Windows paths are bothersome, and if your tool outputs `\\?\`-style paths you might be in trouble. 
 * I'd like to have a "remapping" feature, so you can analyse your warnings even if they use absolute paths, and where
 generated on a different system than where you analyze them.
+
+# Installation and Building
+Until I have published Wcnt to [crates.io](crates.io) you can find binaries at the [Github Releases Page](https://github.com/silven/wcnt/releases). Sorry about that.
+
+Wcnt should also build normally with cargo.
+```plain
+cargo build --release
+```
+
+# License
+Warning Counter (Wcnt) is licensed under the [Apache 2.0](LICENSE) (http://www.apache.org/licenses/LICENSE-2.0) License.
+It may be used in free software as well as closed-source applications, both for commercial and non-commercial use under the conditions given in the license.
+
+## Contribution
+Any contribution intentionally submitted for inclusion in the work must also be Apache2 licensed.
+ 

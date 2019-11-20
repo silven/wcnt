@@ -1,6 +1,7 @@
 [package]
 name = "wcnt"
 version = "0.4.0"
+license = "Apache-2.0"
 authors = ["Mikael Silvén <mikael@silven.nu>"]
 edition = "2018"
 description = "A program to count your warnings inside log files and comparing them against defined limits."
@@ -14,9 +15,9 @@ linked-hash-map = { version = "0.5", features = ["serde_impl"] }
 serde = { version = "1.0", features = ["derive"] }
 # Use ignore to find limits and pathfiles
 ignore = "0.4"
-# Because ignore is bad, we also need GlobSet to match our files
+# Because I can't figure out how to get ignore to only give us certain files, we also use GlobSet
 globset = "0.4"
-# Crossbeam channels for parallel processing
+# Crossbeam channels, also for parallel processing
 crossbeam-channel = "0.3.6"
 # Rayon for parallelism
 rayon = "1.2"
@@ -32,4 +33,4 @@ env_logger = "0.7"
 
 # Dev dependencies for testing
 [dev-dependencies]
-
+# Nothing yet
