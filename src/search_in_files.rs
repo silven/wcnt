@@ -123,14 +123,9 @@ fn search_contents_with_regex(
         let cat_match = matching.name("category").map(|m| m.as_str());
         let desc_match = matching.name("description").map(|m| m.as_str());
 
-        // Hmm, it's either always two clones, or always two get-operations. I prefer the latter.
-        let limits_file = if limits_cache.contains_key(&culprit_file) {
-            *limits_cache.get(&culprit_file).unwrap()
-        } else {
-            *limits_cache
-                .entry(culprit_file.clone())
-                .or_insert_with(|| find_limits_for(limits, culprit_file.as_path()))
-        };
+        let limits_file = limits_cache.entry(culprit_file.clone())
+            .or_insert_with(|| find_limits_for(limits, culprit_file.as_path()))
+            .as_deref();
 
         let category = match cat_match {
             Some(cat_str) => Category::new(result.string_arena.get_or_insert(cat_str)),
