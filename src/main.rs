@@ -146,11 +146,11 @@ fn parse_args() -> Result<Arguments, std::io::Error> {
         )
         .get_matches();
 
-    let cwd = std::env::current_dir()?;
     let start_dir = matches
         .value_of_os("start_dir")
         .map(PathBuf::from)
-        .unwrap_or(cwd);
+        .ok_or(())
+        .or_else(|_| std::env::current_dir())?;
 
     let config_file = matches
         .value_of_os("config_file")
@@ -177,8 +177,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     debug!("Parsed arguments `{:?}`", args);
 
     let mut settings: Settings = {
-        let config_file = read_to_string(args.config_file.as_path())?;
-        toml::from_str(&config_file)?
+        let config_str = read_to_string(args.config_file.as_path())
+            .map_err(|e|
+                format!("Could not read config file `{}`: {}", args.config_file.display(), e))?;
+        toml::from_str(&config_str).map_err(|e|
+            format!("Could not parse config file `{}`: {}", args.config_file.display(), e))?
     };
 
     settings.configure_kinds_to_run(&args.only_kinds);
